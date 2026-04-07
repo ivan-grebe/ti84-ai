@@ -1,0 +1,564 @@
+#!/usr/bin/env python3
+"""
+Tokenize TI-BASIC source into a C header file for embedding in ESP32 firmware.
+Generates include/program_data.h with the tokenized byte array.
+
+Token reference: merthsoft.com/linkguide/ti83+/tokens.html
+"""
+
+import os
+import sys
+
+# ─── TI-83+/84+ Token Table ───────────────────────────────────
+
+# Single-byte command tokens
+COMMANDS = {
+    'ClrHome':  [0xE1],
+    'Disp ':    [0xDE],
+    'Input ':   [0xDC],
+    'Output(':  [0xE0],
+    'Pause':    [0xD8],
+    'Stop':     [0xD9],
+    'If ':      [0xCE],
+    'Then':     [0xCF],
+    'Else':     [0xD0],
+    'End':      [0xD4],
+    'For(':     [0xD3],
+    'While ':   [0xD1],
+    'Repeat ':  [0xD2],
+    'Lbl ':     [0xD6],
+    'Goto ':    [0xD7],
+    'Return':   [0xD5],
+    'Send(':    [0xE7],
+    'Get(':     [0xE8],
+    'Menu(':    [0xE6],
+    'Prompt ':  [0xDD],
+    'getKey':   [0xAD],
+    'sub(':     [0xBB, 0x0C],
+    'DelVar ':  [0x54],
+}
+
+# Two-byte variable tokens (prefix 0xAA for strings)
+VARIABLES = {
+    'Str0': [0xAA, 0x00],
+    'Str1': [0xAA, 0x01],
+    'Str2': [0xAA, 0x02],
+    'Str3': [0xAA, 0x03],
+    'Str4': [0xAA, 0x04],
+    'Str5': [0xAA, 0x05],
+    'Str6': [0xAA, 0x06],
+    'Str7': [0xAA, 0x07],
+    'Str8': [0xAA, 0x08],
+    'Str9': [0xAA, 0x09],
+    'Ans':  [0x72],
+}
+
+# Single-byte character/operator tokens
+CHARS = {
+    ' ':  0x29,
+    '"':  0x2A,
+    ',':  0x2B,
+    '!':  0x2D,
+    '(':  0x10,
+    ')':  0x11,
+    '{':  0x08,
+    '}':  0x09,
+    '+':  0x70,
+    '-':  0x71,
+    '*':  0x82,
+    '/':  0x83,
+    '^':  0xF0,
+    '=':  0x6A,
+    '<':  0x6B,
+    '>':  0x6C,
+    ':':  0x3E,
+    '.':  0x3A,
+    '0':  0x30, '1': 0x31, '2': 0x32, '3': 0x33, '4': 0x34,
+    '5':  0x35, '6': 0x36, '7': 0x37, '8': 0x38, '9': 0x39,
+}
+
+# Letters A-Z: 0x41-0x5A
+for i, ch in enumerate('ABCDEFGHIJKLMNOPQRSTUVWXYZ'):
+    CHARS[ch] = 0x41 + i
+
+# Newline (line separator in program data)
+NEWLINE = 0x3F
+
+# Special comparison tokens
+COMPARISONS = {
+    '\u2260': [0x6F],   # ≠
+    '\u2264': [0x6D],   # ≤
+    '\u2265': [0x6E],   # ≥
+    '!=':     [0x6F],   # ≠ (ASCII fallback)
+}
+
+# Store arrow
+STORE = {
+    '\u2192': [0x04],   # →
+    '->':     [0x04],   # → (ASCII fallback)
+}
+
+def tokenize_line(line):
+    """Tokenize a single line of TI-BASIC into bytes."""
+    tokens = []
+    i = 0
+
+    while i < len(line):
+        matched = False
+
+        # Try matching commands (longest match first)
+        for cmd, tok in sorted(COMMANDS.items(), key=lambda x: -len(x[0])):
+            if line[i:].startswith(cmd):
+                tokens.extend(tok)
+                i += len(cmd)
+                matched = True
+                break
+
+        if matched:
+            continue
+
+        # Try matching variables
+        for var, tok in sorted(VARIABLES.items(), key=lambda x: -len(x[0])):
+            if line[i:].startswith(var):
+                tokens.extend(tok)
+                i += len(var)
+                matched = True
+                break
+
+        if matched:
+            continue
+
+        # Try matching store arrow
+        for arrow, tok in STORE.items():
+            if line[i:].startswith(arrow):
+                tokens.extend(tok)
+                i += len(arrow)
+                matched = True
+                break
+
+        if matched:
+            continue
+
+        # Try matching comparisons
+        for comp, tok in COMPARISONS.items():
+            if line[i:].startswith(comp):
+                tokens.extend(tok)
+                i += len(comp)
+                matched = True
+                break
+
+        if matched:
+            continue
+
+        # Single character
+        ch = line[i]
+        if ch in CHARS:
+            tokens.append(CHARS[ch])
+            i += 1
+        else:
+            print(f"WARNING: Unknown character '{ch}' (U+{ord(ch):04X}) at position {i} in: {line}")
+            # Skip unknown characters
+            i += 1
+
+    return tokens
+
+
+def tokenize_program(source):
+    """Tokenize a complete TI-BASIC program."""
+    all_tokens = []
+    lines = source.strip().split('\n')
+
+    for line_num, line in enumerate(lines):
+        # Strip leading : (line markers) and whitespace
+        line = line.strip()
+        if line.startswith(':'):
+            line = line[1:]
+
+        # Skip empty lines and comments
+        if not line:
+            continue
+
+        # Add newline separator between lines (not before the first line)
+        if all_tokens:
+            all_tokens.append(NEWLINE)
+
+        line_tokens = tokenize_line(line)
+        all_tokens.extend(line_tokens)
+
+        # Debug output
+        hex_str = ' '.join(f'{b:02X}' for b in line_tokens)
+        print(f"  Line {line_num+1:3d}: {line}")
+        print(f"           [{hex_str}]")
+
+    return all_tokens
+
+
+def generate_header(tokens, program_name="TIAI", output_path="include/program_data.h"):
+    """Generate a C header file with the tokenized program as a byte array."""
+    lines = []
+    lines.append("#pragma once")
+    lines.append("")
+    lines.append("// Auto-generated by tools/build_program.py")
+    lines.append("// Do not edit manually — edit the TI-BASIC source in build_program.py")
+    lines.append("")
+    lines.append(f'static const char PROGRAM_NAME[] = "{program_name}";')
+    lines.append("")
+    lines.append(f"static const uint8_t PROGRAM_DATA[] = {{")
+
+    # Format as rows of 16 bytes
+    for i in range(0, len(tokens), 16):
+        chunk = tokens[i:i+16]
+        hex_vals = ', '.join(f'0x{b:02X}' for b in chunk)
+        lines.append(f"    {hex_vals},")
+
+    lines.append("};")
+    lines.append("")
+    lines.append(f"static const uint16_t PROGRAM_DATA_LEN = {len(tokens)};")
+    lines.append("")
+
+    content = '\n'.join(lines) + '\n'
+
+    with open(output_path, 'w') as f:
+        f.write(content)
+
+    print(f"\nGenerated {output_path}: {len(tokens)} bytes")
+    return content
+
+
+# ─── TI-BASIC Program Source ──────────────────────────────────
+# This is the program that gets downloaded to the calculator.
+# Edit this source and re-run the script to regenerate the header.
+
+TIBASIC_SOURCE = r"""
+ClrHome
+Disp "  TI-84 AI"
+Disp ""
+69420->P
+Send({P})
+0->X
+""->Str1
+Lbl M
+ClrHome
+Disp "  TI-84 AI"
+Disp ""
+Disp "1:SEND MESSAGE"
+Disp "2:TAKE PHOTO"
+Disp "3:SETTINGS"
+Disp "0:EXIT"
+Disp ""
+0->K
+Repeat K
+getKey->K
+End
+If K=45
+Stop
+If K=92
+Then
+0->X
+""->Str1
+Goto T
+End
+If K=93
+Goto C
+If K=94
+Goto S
+If K=101
+Stop
+Goto M
+Lbl T
+ClrHome
+Disp "SEND MESSAGE"
+Disp ""
+Disp "ENTER: TYPE"
+Disp "CLEAR: BACK"
+0->K
+Repeat K
+getKey->K
+End
+If K=45
+Goto M
+If K!=105
+Goto T
+ClrHome
+Input "MSG:",Str1
+ClrHome
+Disp "THINKING..."
+"ZZWAITZZ"->Str0
+"ZZWAITZZ"->Str9
+0->Y
+0->Z
+Send({P})
+If X=0
+Then
+Send({4})
+End
+If X=1
+Then
+Send({8})
+End
+Get(Str9)
+Send(Str1)
+Lbl W
+Get(Str0)
+If Str0="ZZWAITZZ"
+Goto W
+If Str0!="READY"
+Then
+1->O
+Goto R
+End
+Z+1->Z
+If Z<8
+Goto W
+0->Z
+Y+1->Y
+If Y<3
+Then
+"ZZWAITZZ"->Str0
+"ZZWAITZZ"->Str9
+Send({P})
+If X=0
+Then
+Send({4})
+End
+If X=1
+Then
+Send({8})
+End
+Get(Str9)
+Send(Str1)
+Goto W
+End
+ClrHome
+Disp "LINK ERROR"
+Disp "TRY AGAIN"
+Disp ""
+Disp "CLEAR: BACK"
+0->K
+Repeat K
+getKey->K
+End
+Goto T
+Lbl C
+ClrHome
+Disp "AIM CAMERA AT"
+Disp "PROBLEM."
+Disp ""
+Disp "ENTER: SNAP"
+Disp "CLEAR: BACK"
+0->K
+Repeat K
+getKey->K
+End
+If K=45
+Goto M
+If K!=105
+Goto C
+ClrHome
+Disp "SOLVING..."
+"ZZWAITZZ"->Str0
+0->Y
+0->Z
+Send({P})
+Send({5})
+Lbl V
+Get(Str0)
+If Str0="ZZWAITZZ"
+Goto V
+If Str0!="READY"
+Then
+2->O
+Goto R
+End
+Z+1->Z
+If Z<8
+Goto V
+0->Z
+Y+1->Y
+If Y<3
+Then
+"ZZWAITZZ"->Str0
+Send({P})
+Send({5})
+Goto V
+End
+ClrHome
+Disp "LINK ERROR"
+Disp "TRY AGAIN"
+Disp ""
+Disp "CLEAR: BACK"
+0->K
+Repeat K
+getKey->K
+End
+Goto C
+Lbl R
+ClrHome
+Str0+"                                                "->Str2
+Disp sub(Str2,1,16)
+Disp sub(Str2,17,16)
+Disp sub(Str2,33,16)
+Disp ""
+Disp "UP/DN: SCROLL"
+Disp "ALPHA: REPLY"
+Disp "CLEAR: BACK"
+0->K
+Repeat K
+getKey->K
+End
+If K=26
+34->K
+If K=34
+Then
+"ZZWAITZZ"->Str0
+Send({P})
+Send({6})
+Lbl N
+Get(Str0)
+If Str0="ZZWAITZZ"
+Goto N
+If Str0="READY"
+Goto N
+Goto R
+End
+If K=24
+25->K
+If K=25
+Then
+"ZZWAITZZ"->Str0
+Send({P})
+Send({7})
+Lbl P
+Get(Str0)
+If Str0="ZZWAITZZ"
+Goto P
+If Str0="READY"
+Goto P
+Goto R
+End
+If K=45
+Goto B
+If K=101
+Goto B
+If K
+Then
+1->X
+""->Str1
+Goto T
+End
+Goto R
+Lbl B
+If O=1
+Then
+0->X
+""->Str1
+Goto T
+End
+If O=2
+Goto C
+Goto M
+Lbl S
+ClrHome
+Disp "  SETTINGS"
+Disp ""
+Disp "1:CONNECT"
+Disp "2:DISCONNECT"
+Disp "3:CONFIGURE"
+Disp "0:BACK"
+Disp ""
+0->K
+Repeat K
+getKey->K
+End
+If K=45
+Goto M
+If K=101
+Goto M
+If K=92
+Then
+ClrHome
+Disp "CONNECTING..."
+"ZZWAITZZ"->Str0
+Send({P})
+Send({1})
+Lbl J
+Get(Str0)
+If Str0="ZZWAITZZ"
+Goto J
+If Str0="READY"
+Goto J
+Goto U
+End
+If K=93
+Then
+"ZZWAITZZ"->Str0
+Send({P})
+Send({2})
+Lbl K
+Get(Str0)
+If Str0="ZZWAITZZ"
+Goto K
+If Str0="READY"
+Goto K
+Goto U
+End
+If K=94
+Then
+"ZZWAITZZ"->Str0
+Send({P})
+Send({3})
+Lbl H
+Get(Str0)
+If Str0="ZZWAITZZ"
+Goto H
+If Str0="READY"
+Goto H
+Goto G
+End
+Goto S
+Lbl U
+ClrHome
+Disp Str0
+Disp ""
+Disp "CLEAR: BACK"
+0->K
+Repeat K
+getKey->K
+End
+If K=45
+Goto S
+If K=101
+Goto S
+Goto U
+Lbl G
+ClrHome
+Disp "CONNECT PHONE TO"
+Disp "WIFI: TI84AI"
+Disp "PASS: 12345678"
+Disp ""
+Disp "OPEN BROWSER:"
+Disp "192.168.4.1"
+Disp ""
+Disp "CLEAR: BACK"
+0->K
+Repeat K
+getKey->K
+End
+If K=45
+Goto S
+If K=101
+Goto S
+Goto G
+"""
+
+
+if __name__ == '__main__':
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_dir = os.path.dirname(script_dir)
+    output_path = os.path.join(project_dir, "include", "program_data.h")
+
+    print("Tokenizing TI-BASIC program...")
+    print("=" * 50)
+    tokens = tokenize_program(TIBASIC_SOURCE)
+    print("=" * 50)
+    generate_header(tokens, "TIAI", output_path)

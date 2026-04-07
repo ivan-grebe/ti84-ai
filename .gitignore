@@ -1,0 +1,22 @@
+.pio/
+.vs/
+.claude/
+
+# Editor settings
+.vscode/
+
+# Serial capture artifacts
+log.txt
+capture.stdout.txt
+capture.stderr.txt
+
+# Local backups
+*.bak
+
+# Python cache
+__pycache__/
+*.pyc
+
+# OS cruft
+Thumbs.db
+Desktop.ini
