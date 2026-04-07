@@ -108,6 +108,7 @@ Once the ESP32 is flashed, set up the calculator:
 6. Back on the calculator, go to **SETTINGS > CONNECT**.
 
 You're ready. Use **SEND MESSAGE** to type a prompt or **TAKE PHOTO** to snap and solve.
+When finished using, pop out a battery to completely kill power to the ESP32. I recommend a 1.5V or 1.2V battery.
 
 ## Updating the Embedded TI-BASIC Program
 
