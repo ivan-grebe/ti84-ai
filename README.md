@@ -1,153 +1,132 @@
 # TI-84 AI
 
-Custom firmware for a modded `TI-84 Plus` with an internal `Seeed Studio XIAO ESP32S3 Sense` and `OV5640` camera.
+Custom firmware for a modded TI-84 Plus with an internal Seeed Studio XIAO ESP32S3 Sense and OV5640 camera.
 
-The calculator talks to the ESP32 over the normal 2.5mm TI link port. The ESP32 handles WiFi, camera capture, and OpenAI requests. The calculator downloads a small TI-BASIC front-end called `TIAI` and uses that as the on-device UI.
+The calculator talks to the ESP32 over the 2.5mm TI link port. The ESP32 handles WiFi, camera capture, and OpenAI requests. A small TI-BASIC program called `TIAI` runs on the calculator as the UI.
 
-## What It Does
+## Features
 
-- install `prgmTIAI` with `Send({1})`
-- send typed prompts from the calculator
-- take a photo and send it to a vision-capable model
-- store WiFi credentials and API key in ESP32 flash
-- serve a simple camera debug page over WiFi
+- Send typed prompts to a vision-capable model from the calculator
+- Take a photo and have it solved automatically
+- Store WiFi credentials and API key in ESP32 flash
+- Camera debug page served over WiFi
+- One-command program install via `Send({1})`
 
 ## Hardware
 
-- `TI-84 Plus` (non-CE)
-- `Seeed Studio XIAO ESP32S3 Sense`
-- `OV5640` camera
-- internal wiring to the calculator link port
+| Part | Details |
+|------|---------|
+| Calculator | TI-84 Plus (non-CE) |
+| Microcontroller | Seeed Studio XIAO ESP32S3 Sense |
+| Camera | OV5640 |
+| Connection | Internal wiring to calculator link port |
 
-This repo is for a custom internal hardware mod, not a general-purpose accessory.
+This is a custom internal hardware mod, not a general-purpose accessory.
 
 ## Wiring
 
-Current link-pin config:
+| TI Link Pin | ESP32 Pin |
+|-------------|-----------|
+| Tip | D0 |
+| Ring | D1 |
 
-- TI link `tip` -> `D0`
-- TI link `ring` -> `D1`
-
-See `include/config.h` and `include/camera_pins.h` for the exact firmware pin definitions.
+See `include/config.h` and `include/camera_pins.h` for the full pin definitions.
 
 ## Repo Layout
 
-- `platformio.ini` - PlatformIO environment
-- `include/config.h` - link pins, prompts, model, camera settings
-- `include/camera_pins.h` - OV5640 pin mapping
-- `include/program_data.h` - generated tokenized TI-BASIC program
-- `src/main.cpp` - TI link handling and command dispatch
-- `src/camera.h` - camera capture and preview helpers
-- `src/wifi_manager.h` - WiFi, setup portal, and debug page
-- `src/openai_client.h` - OpenAI request handling
-- `tools/build_program.py` - TI-BASIC source and tokenizer
+```
+include/
+  config.h            - link pins, prompts, model, camera settings
+  camera_pins.h       - OV5640 pin mapping
+  program_data.h      - generated tokenized TI-BASIC program
+src/
+  main.cpp            - TI link handling and command dispatch
+  camera.h            - camera capture and preview helpers
+  wifi_manager.h      - WiFi, setup portal, and debug page
+  openai_client.h     - OpenAI request handling
+tools/
+  build_program.py    - TI-BASIC source and tokenizer
+  capture_serial.ps1  - serial log capture (timed, auto-detects COM port)
+  start_capture_background.ps1 - start serial capture in a background process
+  stop_capture_background.ps1  - stop the background capture process
+platformio.ini        - PlatformIO environment
+```
 
 ## Development Setup
 
-The easiest way to build this project is with `Visual Studio Code` and the `PlatformIO IDE` extension.
+You need four things installed before you can build:
 
-Install these first:
+1. **Python 3** -- https://www.python.org/downloads/
+   - During install, check **Add Python to PATH**
+2. **Visual Studio Code** -- https://code.visualstudio.com/
+3. **PlatformIO IDE** -- install it as a VS Code extension
+4. **Git** -- https://git-scm.com/download/win (if not already installed)
 
-- `Python 3`
-- `Visual Studio Code`
-- `PlatformIO IDE`
-- `Git`
+After installing PlatformIO, restart VS Code, then open this project folder.
 
-Recommended Windows setup:
+> If you use the VS Code extension you do not need to install PlatformIO Core separately.
 
-1. Install Python 3 from `https://www.python.org/downloads/`
-2. During Python setup, enable `Add Python to PATH`
-3. Install VS Code from `https://code.visualstudio.com/`
-4. Open VS Code and install the `PlatformIO IDE` extension
-5. Install Git from `https://git-scm.com/download/win` if it is not already installed
-6. Reopen VS Code after PlatformIO finishes installing
-7. Open this project folder in VS Code
+PlatformIO docs: [VS Code extension](https://docs.platformio.org/en/latest/integration/ide/vscode.html) | [Core installation](https://docs.platformio.org/en/latest/core/installation/)
 
-Official PlatformIO docs:
+## Build and Flash
 
-- VS Code extension: `https://docs.platformio.org/en/latest/integration/ide/vscode.html`
-- Core installation: `https://docs.platformio.org/en/latest/core/installation/`
-
-If you use the VS Code extension, you usually do not need to install PlatformIO Core separately.
-
-## Build
+Build the firmware:
 
 ```powershell
 platformio run
 ```
 
-## Flash
+Flash to the ESP32:
 
 ```powershell
 platformio run --target upload
 ```
 
-## Serial Monitor
+Open the serial monitor:
 
 ```powershell
 platformio device monitor --port COM4 --baud 115200
 ```
 
-## First-Time Setup
+## First-Time Calculator Setup
 
-1. Flash the ESP32 firmware:
+Once the ESP32 is flashed, set up the calculator:
 
-```powershell
-platformio run --target upload
-```
+1. On the TI-84 home screen, type `Send({1})` and press ENTER.
 
-2. On the TI-84 home screen, run:
+   To find `Send(`: press **[2ND]** > **[CATALOG]** > **[LN]** > scroll to `Send(`
 
-```text
-Send({1})
-```
+   This installs `prgmTIAI` on the calculator.
 
-One easy way to enter it is:
-
-- press `[2ND]`
-- press `[CATALOG]`
-- press `[LN]`
-- scroll to `Send(`
-
-3. Run `prgmTIAI`
-4. Open `SETTINGS -> CONFIGURE`
-5. Connect to the setup AP shown on the calculator
-6. Enter:
-   - WiFi SSID
+2. Run `prgmTIAI`.
+3. Go to **SETTINGS > CONFIGURE**. The calculator will display an AP name.
+4. On your phone or computer, connect to that AP.
+5. In the portal page that opens, enter your:
+   - WiFi network name (SSID)
    - WiFi password
    - OpenAI API key
+6. Back on the calculator, go to **SETTINGS > CONNECT**.
 
-After that, use `SETTINGS -> CONNECT`, then `SEND MESSAGE` or `TAKE PHOTO`.
+You're ready. Use **SEND MESSAGE** to type a prompt or **TAKE PHOTO** to snap and solve.
 
-## Updating The Embedded TI-BASIC Program
+## Updating the Embedded TI-BASIC Program
 
-If you change `tools/build_program.py`, regenerate the embedded calculator program:
-
-```powershell
-python tools/build_program.py
-```
-
-Then reflash the ESP32:
+If you edit the TI-BASIC source in `tools/build_program.py`:
 
 ```powershell
-platformio run --target upload
+python tools/build_program.py          # regenerate the tokenized program
+platformio run --target upload          # flash the updated firmware
 ```
 
-After flashing, go back to the calculator and run:
-
-```text
-Send({1})
-```
-
-That installs the new `TIAI` program on the calculator.
+Then on the calculator, run `Send({1})` again to install the new version of `TIAI`.
 
 ## Notes
 
-- camera quality and prompt behavior are controlled in `include/config.h`
-- real serial logs are intentionally not committed because they may contain local network details
+- Camera quality and prompt behavior are configured in `include/config.h`
+- Serial logs are not committed because they may contain local network details
 
 ## Known Limits
 
-- built around the `TI-84 Plus`, not the `TI-84 Plus CE`
-- large image uploads can still stress the ESP32 network stack
-- the silent install path may still log `No ACK after EOT` even when install succeeds
+- Built for the TI-84 Plus, not the TI-84 Plus CE
+- Large image uploads can stress the ESP32 network stack
+- The silent install path may log `No ACK after EOT` even on a successful install
