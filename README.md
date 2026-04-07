@@ -6,18 +6,18 @@ The calculator talks to the ESP32 over the normal 2.5mm TI link port. The ESP32 
 
 ## What It Does
 
-- install `prgmTIAI` with `Send({1})`
-- send typed prompts from the calculator
-- take a photo and send it to a vision-capable model
-- store WiFi credentials and API key in ESP32 flash
-- serve a simple camera debug page over WiFi
+- Install `prgmTIAI` with `Send({1})`
+- Send typed prompts from the calculator
+- Take a photo and send it to a vision-capable model
+- Store WiFi credentials and API key in ESP32 flash
+- Serve a simple camera debug page over WiFi
 
 ## Hardware
 
 - `TI-84 Plus` (non-CE)
 - `Seeed Studio XIAO ESP32S3 Sense`
 - `OV5640` camera
-- internal wiring to the calculator link port
+- Internal wiring to the calculator link port
 
 This repo is for a custom internal hardware mod, not a general-purpose accessory.
 
@@ -62,6 +62,7 @@ platformio run --target upload
 ```text
 Send({1})
 ```
+(You can access this easily by pressing [2ND] + [CATALOG], then pressing [LN] and scrolling down and selecting Send.)
 
 3. Run `prgmTIAI`.
 4. Open `SETTINGS -> CONFIGURE`.
@@ -77,7 +78,6 @@ After that, use `SETTINGS -> CONNECT`, then `SEND MESSAGE` or `TAKE PHOTO`.
 - If you change `tools/build_program.py`, regenerate `include/program_data.h` and reflash.
 - After changing the embedded TI-BASIC program, run `Send({1})` again on the calculator.
 - Camera quality and prompt behavior are controlled in `include/config.h`.
-- Real serial logs are intentionally not committed because they may contain local network details.
 
 ## Known Limits
 
