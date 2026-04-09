@@ -99,9 +99,10 @@ static inline uint8_t normalizeCameraProfileValue(uint8_t profile) {
     "If a graph would help, describe it in words only. " \
     "Then give short work. " \
     "Plaintext only. No markdown, bullets, code blocks, LaTeX, or special formatting. " \
-    "ASCII math only. End with END OF MESSAGE."
+    "ASCII math only. End the final line exactly with: END OF MESSAGE."
 
 #define CAMERA_RECAP_SUFFIX \
-    " Before answering, first restate the visible problem or prompt in plain words. " \
+    "Before answering, first restate the visible problem or prompt in plain words. " \
+    "Begin your message with 'TRANSCRIPTION:' " \
     "If the image contains symbols, operators, or notation, rewrite them as plain words or simple ASCII math. " \
     "Do this only for what you can actually read from the image."
