@@ -544,14 +544,14 @@ Goto S
 Goto U
 Lbl G
 ClrHome
-Disp "CONNECT PHONE TO"
-Disp "WIFI: TI84AI"
-Disp "PASS: 12345678"
-Disp ""
-Disp "OPEN BROWSER:"
-Disp "192.168.4.1"
-Disp ""
-Disp "CLEAR: BACK"
+Output(1,1,"CONNECT PHONE TO")
+Output(2,1,"WIFI: TI84AI")
+Output(3,1,"PASS: 12345678")
+Output(4,1,"                ")
+Output(5,1,"OPEN BROWSER:")
+Output(6,1,"192.168.4.1")
+Output(7,1,"                ")
+Output(8,1,"CLEAR: BACK")
 0->K
 Repeat K
 getKey->K
