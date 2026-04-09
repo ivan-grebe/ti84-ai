@@ -1,88 +1,100 @@
 #pragma once
 
 #include <Arduino.h>
-#include <WiFiClientSecure.h>
+#include <ArduinoJson.h>
 #include <HTTPClient.h>
+#include <WiFiClientSecure.h>
+
 #include "config.h"
 #include "wifi_manager.h"
 
 namespace OpenAI {
 
-// Conversation history (kept simple: system + last few exchanges)
-static String conversationHistory = "";
-static bool hasConversation = false;
+namespace {
 
-void clearConversation() {
-    conversationHistory = "";
-    hasConversation = false;
-    Serial.println("Conversation cleared");
-}
+constexpr uint16_t kMaxOutputTokens = 512;
+constexpr float kRequestTemperature = 0.3f;
+constexpr unsigned long kWifiReconnectDelayMs = 250;
+constexpr unsigned long kTransportRetryDelayMs = 300;
+constexpr unsigned long kWifiReconnectTimeoutMs = 10000;
+constexpr uint16_t kHttpConnectTimeoutMs = 15000;
+constexpr uint32_t kHttpRequestTimeoutMs = 60000;
+constexpr size_t kResponseParseSlack = 4096;
+constexpr size_t kErrorParseSlack = 2048;
+constexpr size_t kResponseIdDocCapacity = 128;
+constexpr char kDefaultVisionPrompt[] = "Read the image and answer.";
 
-// Escape a string for JSON
-static String jsonEscape(const String &s) {
-    String out;
-    out.reserve(s.length() + 32);
-    for (unsigned int i = 0; i < s.length(); i++) {
-        char c = s[i];
+struct RequestOptions {
+    String userMessage;
+    String imageBase64;
+    const char *instructions = "";
+    bool isVision = false;
+    bool includePreviousResponse = false;
+    bool updateConversationState = false;
+};
+
+struct RequestResult {
+    int httpCode = HTTPC_ERROR_CONNECTION_REFUSED;
+    String rawBody = "";
+};
+
+String previousResponseId = "";
+
+void appendJsonString(String &out, const String &value) {
+    out += '"';
+    for (unsigned int i = 0; i < value.length(); i++) {
+        const char c = value[i];
         switch (c) {
-            case '"':  out += "\\\""; break;
-            case '\\': out += "\\\\"; break;
-            case '\n': out += "\\n";  break;
-            case '\r': out += "\\r";  break;
-            case '\t': out += "\\t";  break;
-            default:   out += c;      break;
+            case '"':
+                out += "\\\"";
+                break;
+            case '\\':
+                out += "\\\\";
+                break;
+            case '\n':
+                out += "\\n";
+                break;
+            case '\r':
+                out += "\\r";
+                break;
+            case '\t':
+                out += "\\t";
+                break;
+            default:
+                out += c;
+                break;
         }
     }
-    return out;
+    out += '"';
 }
 
-// Extract "content" value from JSON response (simple parser, no library needed)
-static String extractContent(const String &json) {
-    // Find "content":" in the response
-    int idx = json.indexOf("\"content\":");
-    if (idx < 0) return "Error: no content in response";
-
-    idx = json.indexOf('"', idx + 10);
-    if (idx < 0) return "Error: malformed response";
-    idx++; // skip opening quote
-
-    String content;
-    while (idx < (int)json.length()) {
-        char c = json[idx];
-        if (c == '"') break;  // end of string
-        if (c == '\\' && idx + 1 < (int)json.length()) {
-            idx++;
-            char next = json[idx];
-            switch (next) {
-                case 'n':  content += '\n'; break;
-                case 't':  content += ' ';  break;
-                case '"':  content += '"';  break;
-                case '\\': content += '\\'; break;
-                case 'r':  break;  // skip carriage returns
-                default:   content += next; break;
-            }
-        } else {
-            content += c;
-        }
-        idx++;
-    }
-    return content;
+bool shouldStoreResponse(const RequestOptions &options) {
+    return !options.isVision && options.updateConversationState;
 }
 
-static bool ensureOpenAIHostResolves() {
+bool shouldUsePreviousResponse(const RequestOptions &options) {
+    return options.includePreviousResponse && previousResponseId.length() > 0;
+}
+
+void logDnsState(const char *prefix) {
+    Serial.printf("%s dns1=%s dns2=%s\n",
+                  prefix,
+                  WiFi.dnsIP(0).toString().c_str(),
+                  WiFi.dnsIP(1).toString().c_str());
+}
+
+bool ensureOpenAIHostResolves() {
     IPAddress resolved;
     if (WiFi.hostByName(OPENAI_HOST, resolved)) {
         Serial.printf("DNS OK: %s -> %s\n", OPENAI_HOST, resolved.toString().c_str());
         return true;
     }
 
-    Serial.printf("DNS fail: dns1=%s dns2=%s\n",
-                  WiFi.dnsIP(0).toString().c_str(),
-                  WiFi.dnsIP(1).toString().c_str());
+    logDnsState("DNS fail:");
     Serial.println("Reconnecting WiFi to recover DNS...");
     WifiManager::disconnect();
-    delay(250);
-    if (!WifiManager::connect(10000)) {
+    delay(kWifiReconnectDelayMs);
+    if (!WifiManager::connect(kWifiReconnectTimeoutMs)) {
         return false;
     }
 
@@ -92,13 +104,200 @@ static bool ensureOpenAIHostResolves() {
         return true;
     }
 
-    Serial.printf("DNS still failing: dns1=%s dns2=%s\n",
-                  WiFi.dnsIP(0).toString().c_str(),
-                  WiFi.dnsIP(1).toString().c_str());
+    logDnsState("DNS still failing:");
     return false;
 }
 
-// Make API call and return the response text
+void addTextInputMessage(JsonArray input, const char *role, const String &text) {
+    JsonObject message = input.createNestedObject();
+    message["role"] = role;
+    JsonArray content = message.createNestedArray("content");
+    JsonObject part = content.createNestedObject();
+    part["type"] = "input_text";
+    part["text"] = text;
+}
+
+String buildTextRequestBody(const RequestOptions &options) {
+    const size_t capacity =
+        1536 + strlen(options.instructions) + options.userMessage.length() + previousResponseId.length();
+    DynamicJsonDocument doc(capacity);
+
+    doc["model"] = OPENAI_MODEL;
+    doc["instructions"] = options.instructions;
+    doc["temperature"] = kRequestTemperature;
+    doc["max_output_tokens"] = kMaxOutputTokens;
+    doc["store"] = shouldStoreResponse(options);
+
+    if (shouldUsePreviousResponse(options)) {
+        doc["previous_response_id"] = previousResponseId;
+    }
+
+    JsonArray input = doc.createNestedArray("input");
+    addTextInputMessage(input, "user", options.userMessage);
+
+    String body;
+    body.reserve(capacity);
+    serializeJson(doc, body);
+    return body;
+}
+
+String buildVisionRequestBody(const RequestOptions &options) {
+    // This path is intentionally manual. Fully materializing the image request in
+    // ArduinoJson would duplicate a very large base64 string in RAM, which makes
+    // TLS uploads noticeably less reliable on the ESP32. The text-only path can
+    // use ArduinoJson safely because those payloads stay small.
+    const String prompt = options.userMessage.length() > 0
+        ? options.userMessage
+        : String(kDefaultVisionPrompt);
+
+    String body;
+    // Reserve once so we do not keep reallocating while appending a 100KB+ image.
+    body.reserve(strlen(OPENAI_MODEL) + strlen(options.instructions) + prompt.length() +
+                 options.imageBase64.length() + 256);
+    body += "{\"model\":";
+    appendJsonString(body, OPENAI_MODEL);
+    body += ",\"instructions\":";
+    appendJsonString(body, options.instructions);
+    body += ",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":";
+    appendJsonString(body, prompt);
+    body += "},{\"type\":\"input_image\",\"image_url\":\"data:image/jpeg;base64,";
+    body += options.imageBase64;
+    body += "\"}]}],\"max_output_tokens\":";
+    body += String(kMaxOutputTokens);
+    body += ",\"temperature\":";
+    body += String(kRequestTemperature, 1);
+    body += ",\"store\":false}";
+    return body;
+}
+
+String buildRequestBody(const RequestOptions &options) {
+    return options.isVision ? buildVisionRequestBody(options)
+                            : buildTextRequestBody(options);
+}
+
+String extractOutputText(const String &rawResponse) {
+    DynamicJsonDocument doc(rawResponse.length() + kResponseParseSlack);
+    const DeserializationError err = deserializeJson(doc, rawResponse);
+    if (err) {
+        return "Error: malformed response";
+    }
+
+    JsonArray output = doc["output"].as<JsonArray>();
+    if (output.isNull()) {
+        return "Error: no content in response";
+    }
+
+    String content;
+    for (JsonObject item : output) {
+        const char *itemType = item["type"] | "";
+        if (strcmp(itemType, "message") != 0) {
+            continue;
+        }
+
+        JsonArray parts = item["content"].as<JsonArray>();
+        for (JsonObject part : parts) {
+            const char *partType = part["type"] | "";
+            const char *text = part["text"] | "";
+            if ((strcmp(partType, "output_text") == 0 || strcmp(partType, "text") == 0) &&
+                text[0] != '\0') {
+                content += text;
+            }
+        }
+    }
+
+    return content.length() > 0 ? content : String("Error: no content in response");
+}
+
+String extractResponseId(const String &rawResponse) {
+    StaticJsonDocument<32> filter;
+    filter["id"] = true;
+
+    DynamicJsonDocument doc(kResponseIdDocCapacity);
+    const DeserializationError err =
+        deserializeJson(doc, rawResponse, DeserializationOption::Filter(filter));
+    if (err) {
+        return "";
+    }
+
+    const char *id = doc["id"] | "";
+    return String(id);
+}
+
+String extractErrorMessage(const String &rawResponse) {
+    DynamicJsonDocument doc(rawResponse.length() + kErrorParseSlack);
+    const DeserializationError err = deserializeJson(doc, rawResponse);
+    if (err) {
+        return rawResponse.substring(0, 200);
+    }
+
+    const char *errorMessage = doc["error"]["message"] | nullptr;
+    if (errorMessage && errorMessage[0] != '\0') {
+        return String(errorMessage);
+    }
+
+    const char *message = doc["message"] | nullptr;
+    if (message && message[0] != '\0') {
+        return String(message);
+    }
+
+    return rawResponse.substring(0, 200);
+}
+
+RequestResult runRequest(const String &body, const String &apiKey) {
+    RequestResult result;
+
+    WiFiClientSecure client;
+    client.setInsecure();
+    client.setHandshakeTimeout(30);
+    client.setTimeout(30);
+
+    HTTPClient http;
+    const String url = "https://" + String(OPENAI_HOST) + String(OPENAI_PATH);
+    if (!http.begin(client, url)) {
+        result.rawBody = "begin failed";
+        return result;
+    }
+
+    http.setReuse(false);
+    http.setConnectTimeout(kHttpConnectTimeoutMs);
+    http.setTimeout(kHttpRequestTimeoutMs);
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("Authorization", "Bearer " + apiKey);
+
+    result.httpCode = http.POST(body);
+    if (result.httpCode > 0) {
+        result.rawBody = http.getString();
+    } else {
+        result.rawBody = http.errorToString(result.httpCode);
+    }
+    http.end();
+
+    Serial.printf("API result code: %d\n", result.httpCode);
+    return result;
+}
+
+RequestResult runRequestWithRetry(const String &body, const String &apiKey) {
+    RequestResult result = runRequest(body, apiKey);
+    if (result.httpCode > 0) {
+        return result;
+    }
+
+    Serial.printf("Transport error %d. Retrying once...\n", result.httpCode);
+    delay(kTransportRetryDelayMs);
+    WifiManager::disconnect();
+    delay(kWifiReconnectDelayMs);
+    WifiManager::connect(kWifiReconnectTimeoutMs);
+    ensureOpenAIHostResolves();
+    return runRequest(body, apiKey);
+}
+
+}  // namespace
+
+void clearConversation() {
+    previousResponseId = "";
+    Serial.println("Conversation cleared");
+}
+
 String chat(const String &userMessage,
             const String &imageBase64 = "",
             bool includeHistory = false,
@@ -107,144 +306,60 @@ String chat(const String &userMessage,
         return "Error: WiFi not connected";
     }
 
-    String apiKey = WifiManager::getAPIKey();
+    const String apiKey = WifiManager::getAPIKey();
     if (apiKey.length() == 0) {
         return "Error: No API key configured";
     }
 
-    const bool isVision = imageBase64.length() > 0;
-    const char *systemPrompt = isVision ? CAMERA_PROMPT : SYSTEM_PROMPT;
-    const bool useHistory = !isVision && includeHistory &&
-                            hasConversation && conversationHistory.length() > 0;
-    String effectiveUserMessage = isVision ? "Read the image and answer." : userMessage;
+    RequestOptions options;
+    options.userMessage = userMessage;
+    options.imageBase64 = imageBase64;
+    options.includePreviousResponse = includeHistory;
+    options.updateConversationState = updateTextHistory;
+    options.isVision = imageBase64.length() > 0;
+    options.instructions = options.isVision ? CAMERA_PROMPT : SYSTEM_PROMPT;
 
-    String model = OPENAI_MODEL;
-    Serial.printf("Free heap before DNS: %u\n", ESP.getFreeHeap());
     if (!ensureOpenAIHostResolves()) {
         return "DNS ERROR";
     }
 
-    String body;
-    body.reserve(String(model).length() + effectiveUserMessage.length() + imageBase64.length() +
-                 (useHistory ? conversationHistory.length() : 0) + strlen(systemPrompt) + 256);
-    body += "{\"model\":\"";
-    body += model;
-    body += "\",\"messages\":[";
-    body += "{\"role\":\"system\",\"content\":\"";
-    body += jsonEscape(systemPrompt);
-    body += "\"}";
-    if (useHistory) {
-        body += ",";
-        body += conversationHistory;
-    }
-    body += ",{\"role\":\"user\",\"content\":";
-    if (isVision) {
-        body += "[{\"type\":\"text\",\"text\":\"";
-        body += jsonEscape(effectiveUserMessage);
-        body += "\"},{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/jpeg;base64,";
-        body += imageBase64;
-        body += "\",\"detail\":\"high\"}}]";
-    } else {
-        body += "\"";
-        body += jsonEscape(effectiveUserMessage);
-        body += "\"";
-    }
-    body += "}],\"max_completion_tokens\":512,\"temperature\":0.3}";
+    const String body = buildRequestBody(options);
+    RequestResult result = runRequestWithRetry(body, apiKey);
 
-    Serial.printf("API request: %u bytes, free heap after build: %u\n",
-                  body.length(), ESP.getFreeHeap());
     String response;
-    String rawResponse;
+    if (result.httpCode == 200) {
+        response = extractOutputText(result.rawBody);
 
-    auto runRequest = [&](String &out) {
-        WiFiClientSecure client;
-        client.setInsecure();  // Skip cert verification (ESP32 has limited CA store)
-        client.setHandshakeTimeout(30);
-        client.setTimeout(30);
-
-        HTTPClient http;
-        String url = "https://" + String(OPENAI_HOST) + String(OPENAI_PATH);
-        if (!http.begin(client, url)) {
-            out = "begin failed";
-            return HTTPC_ERROR_CONNECTION_REFUSED;
+        if (shouldStoreResponse(options)) {
+            previousResponseId = extractResponseId(result.rawBody);
         }
-
-        http.setReuse(false);
-        http.setConnectTimeout(15000);
-        http.setTimeout(60000);  // 60s timeout for vision requests
-        http.addHeader("Content-Type", "application/json");
-        http.addHeader("Authorization", "Bearer " + apiKey);
-
-        int code = http.POST(body);
-        if (code > 0) {
-            out = http.getString();
-        } else {
-            out = http.errorToString(code);
-        }
-        http.end();
-
-        Serial.printf("API result code: %d\n", code);
-        return code;
-    };
-
-    int httpCode = runRequest(rawResponse);
-    if (httpCode <= 0) {
-        Serial.printf("Transport error %d. Retrying once...\n", httpCode);
-        delay(300);
-        WifiManager::disconnect();
-        delay(250);
-        WifiManager::connect(10000);
-        ensureOpenAIHostResolves();
-        rawResponse = "";
-        httpCode = runRequest(rawResponse);
-    }
-
-    if (httpCode == 200) {
-        response = extractContent(rawResponse);
-
-        // Save to conversation history (keep last exchange only to save memory)
-        if (!isVision && updateTextHistory) {
-            conversationHistory = "{\"role\":\"user\",\"content\":\"" +
-                                  jsonEscape(userMessage) + "\"}," +
-                                  "{\"role\":\"assistant\",\"content\":\"" +
-                                  jsonEscape(response) + "\"}";
-            hasConversation = true;
-        }
-
-        Serial.printf("Response: %u chars\n", response.length());
-    } else if (httpCode > 0) {
-        response = "API error " + String(httpCode) + ": " + rawResponse.substring(0, 200);
+    } else if (result.httpCode > 0) {
+        response = "API error " + String(result.httpCode) + ": " +
+                   extractErrorMessage(result.rawBody);
         Serial.println(response);
     } else {
-        if (rawResponse == "connection refused") {
+        if (result.rawBody == "connection refused") {
             response = "DNS/NET ERROR";
         } else {
-        response = "HTTP error " + String(httpCode) + ": " + rawResponse;
+            response = "HTTP error " + String(result.httpCode) + ": " + result.rawBody;
         }
         Serial.println(response);
     }
+
     return response;
 }
 
-// Text query
 String ask(const String &prompt) {
     clearConversation();
     return chat(prompt, "", false, true);
 }
 
-// Follow-up in conversation
 String reply(const String &prompt) {
     return chat(prompt, "", true, true);
 }
 
-// Vision query with camera image
 String solveImage(const String &imageBase64) {
     return chat("", imageBase64, false, false);
-}
-
-// Vision query with custom prompt
-String askWithImage(const String &prompt, const String &imageBase64) {
-    return chat(prompt, imageBase64, false, false);
 }
 
 }  // namespace OpenAI
