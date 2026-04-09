@@ -646,12 +646,10 @@ void setup() {
     Serial.printf("PIN_TIP=%d, PIN_RING=%d\n", PIN_TIP, PIN_RING);
     Serial.flush();
 
-    Serial.println("Initializing camera...");
-    Camera::init();
-
     Serial.println("Loading credentials...");
     WifiManager::loadCredentials();
     Camera::applyQualityProfile(WifiManager::cameraQualityProfile());
+    Serial.println("Camera init deferred until first photo/debug use.");
 
     cbl.setLines(PIN_TIP, PIN_RING);
     cbl.resetLines();
