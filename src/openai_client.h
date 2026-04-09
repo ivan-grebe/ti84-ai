@@ -27,7 +27,7 @@ constexpr char kDefaultVisionPrompt[] = "Read the image and answer.";
 struct RequestOptions {
     String userMessage;
     String imageBase64;
-    const char *instructions = "";
+    String instructions;
     bool isVision = false;
     bool includePreviousResponse = false;
     bool updateConversationState = false;
@@ -76,6 +76,14 @@ bool shouldUsePreviousResponse(const RequestOptions &options) {
     return options.includePreviousResponse && previousResponseId.length() > 0;
 }
 
+String buildVisionInstructions() {
+    String instructions = CAMERA_PROMPT;
+    if (WifiManager::photoRecapEnabled()) {
+        instructions += CAMERA_RECAP_SUFFIX;
+    }
+    return instructions;
+}
+
 void logDnsState(const char *prefix) {
     Serial.printf("%s dns1=%s dns2=%s\n",
                   prefix,
@@ -119,7 +127,7 @@ void addTextInputMessage(JsonArray input, const char *role, const String &text) 
 
 String buildTextRequestBody(const RequestOptions &options) {
     const size_t capacity =
-        1536 + strlen(options.instructions) + options.userMessage.length() + previousResponseId.length();
+        1536 + options.instructions.length() + options.userMessage.length() + previousResponseId.length();
     DynamicJsonDocument doc(capacity);
 
     doc["model"] = OPENAI_MODEL;
@@ -152,7 +160,7 @@ String buildVisionRequestBody(const RequestOptions &options) {
 
     String body;
     // Reserve once so we do not keep reallocating while appending a 100KB+ image.
-    body.reserve(strlen(OPENAI_MODEL) + strlen(options.instructions) + prompt.length() +
+    body.reserve(strlen(OPENAI_MODEL) + options.instructions.length() + prompt.length() +
                  options.imageBase64.length() + 256);
     body += "{\"model\":";
     appendJsonString(body, OPENAI_MODEL);
@@ -298,6 +306,14 @@ void clearConversation() {
     Serial.println("Conversation cleared");
 }
 
+String conversationResponseId() {
+    return previousResponseId;
+}
+
+void setConversationResponseId(const String &responseId) {
+    previousResponseId = responseId;
+}
+
 String chat(const String &userMessage,
             const String &imageBase64 = "",
             bool includeHistory = false,
@@ -317,7 +333,7 @@ String chat(const String &userMessage,
     options.includePreviousResponse = includeHistory;
     options.updateConversationState = updateTextHistory;
     options.isVision = imageBase64.length() > 0;
-    options.instructions = options.isVision ? CAMERA_PROMPT : SYSTEM_PROMPT;
+    options.instructions = options.isVision ? buildVisionInstructions() : String(SYSTEM_PROMPT);
 
     if (!ensureOpenAIHostResolves()) {
         return "DNS ERROR";
