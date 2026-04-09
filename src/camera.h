@@ -18,6 +18,11 @@ static framesize_t configuredFrameSize = CAM_FRAMESIZE;
 static int configuredJpegQuality = CAM_JPEG_QUALITY;
 static uint8_t configuredProfile = CAM_PROFILE_DEFAULT;
 
+static uint8_t *allocBuffer(size_t len) {
+    uint8_t *buffer = static_cast<uint8_t *>(ps_malloc(len));
+    return buffer ? buffer : static_cast<uint8_t *>(malloc(len));
+}
+
 static uint8_t resolveQualityProfile(uint8_t profile, framesize_t *frameSize, int *jpegQuality) {
     switch (normalizeCameraProfileValue(profile)) {
         case CAM_PROFILE_LOW:
@@ -50,10 +55,7 @@ static void clearLastCapture() {
 static bool storeLastCapture(camera_fb_t *fb) {
     if (!fb || !fb->buf || fb->len == 0) return false;
 
-    uint8_t *copy = (uint8_t *)ps_malloc(fb->len);
-    if (!copy) {
-        copy = (uint8_t *)malloc(fb->len);
-    }
+    uint8_t *copy = allocBuffer(fb->len);
     if (!copy) {
         Serial.println("JPEG copy malloc failed");
         return false;
@@ -214,10 +216,7 @@ String captureBase64() {
     size_t olen = 0;
     mbedtls_base64_encode(NULL, 0, &olen, fb->buf, fb->len);
 
-    uint8_t *b64buf = (uint8_t *)ps_malloc(olen + 1);
-    if (!b64buf) {
-        b64buf = (uint8_t *)malloc(olen + 1);
-    }
+    uint8_t *b64buf = allocBuffer(olen + 1);
     if (!b64buf) {
         Serial.println("Base64 malloc failed");
         esp_camera_fb_return(fb);
@@ -241,10 +240,7 @@ bool capturePreviewJpeg(uint8_t **outBuf, size_t *outLen) {
     camera_fb_t *fb = capture();
     if (!fb) return false;
 
-    uint8_t *copy = (uint8_t *)ps_malloc(fb->len);
-    if (!copy) {
-        copy = (uint8_t *)malloc(fb->len);
-    }
+    uint8_t *copy = allocBuffer(fb->len);
     if (!copy) {
         Serial.println("Preview JPEG malloc failed");
         esp_camera_fb_return(fb);

@@ -17,6 +17,15 @@ constexpr int kMaxResponseLines = 72;
 constexpr int kResponseWindowLines = 5;
 constexpr unsigned long kHeartbeatIntervalMs = 10000;
 constexpr unsigned long kProgramSendDelayMs = 300;
+constexpr uint8_t kTiMachineIdComputer = 0x23;
+constexpr uint8_t kTiVarTypeProgram = 0x05;
+constexpr uint8_t kTiCmdRequestToSend = 0xC9;
+constexpr uint8_t kTiCmdAcknowledge = 0x56;
+constexpr uint8_t kTiCmdSkip = 0x36;
+constexpr uint8_t kTiCmdClearToSend = 0x09;
+constexpr uint8_t kTiCmdData = 0x15;
+constexpr uint8_t kTiCmdEndOfTransmission = 0x92;
+constexpr unsigned long kEotAckTimeoutUs = 5000000UL;  // Calculator may pause while writing flash.
 
 enum class PendingTextCommand : uint8_t {
     None = 0,
@@ -111,9 +120,7 @@ void resetUnlockedSessionState() {
 
 void swapDisplayLineArrays(String *lhs, String *rhs) {
     for (int i = 0; i < kMaxResponseLines; i++) {
-        String temp = lhs[i];
-        lhs[i] = rhs[i];
-        rhs[i] = temp;
+        std::swap(lhs[i], rhs[i]);
     }
 }
 
@@ -161,7 +168,7 @@ bool sendProgramVariableOnce() {
     uint8_t rts[13];
     rts[0] = dataLen & 0xFF;
     rts[1] = (dataLen >> 8) & 0xFF;
-    rts[2] = 0x05;
+    rts[2] = kTiVarTypeProgram;
     memset(&rts[3], 0x00, 8);
     memcpy(&rts[3], PROGRAM_NAME, strlen(PROGRAM_NAME));
     rts[11] = 0x00;
@@ -184,8 +191,8 @@ bool sendProgramVariableOnce() {
 
     cbl.resetLines();
 
-    txHeader[0] = 0x23;
-    txHeader[1] = 0xC9;
+    txHeader[0] = kTiMachineIdComputer;
+    txHeader[1] = kTiCmdRequestToSend;
     txHeader[2] = 13;
     txHeader[3] = 0;
     if (cbl.send(txHeader, rts, 13)) {
@@ -194,7 +201,7 @@ bool sendProgramVariableOnce() {
         return false;
     }
 
-    if (cbl.get(rxHeader, rxBuffer, &rxLen, 64) || rxHeader[1] != 0x56) {
+    if (cbl.get(rxHeader, rxBuffer, &rxLen, 64) || rxHeader[1] != kTiCmdAcknowledge) {
         Serial.println("No ACK after RTS");
         free(payload);
         return false;
@@ -206,21 +213,21 @@ bool sendProgramVariableOnce() {
         return false;
     }
 
-    if (rxHeader[1] == 0x36) {
+    if (rxHeader[1] == kTiCmdSkip) {
         Serial.println("Calculator rejected transfer");
         free(payload);
         return false;
     }
 
-    if (rxHeader[1] == 0x09) {
-        txHeader[1] = 0x56;
+    if (rxHeader[1] == kTiCmdClearToSend) {
+        txHeader[1] = kTiCmdAcknowledge;
         txHeader[2] = 0;
         txHeader[3] = 0;
         cbl.send(txHeader, nullptr, 0);
     }
 
-    txHeader[0] = 0x23;
-    txHeader[1] = 0x15;
+    txHeader[0] = kTiMachineIdComputer;
+    txHeader[1] = kTiCmdData;
     txHeader[2] = dataLen & 0xFF;
     txHeader[3] = (dataLen >> 8) & 0xFF;
     if (cbl.send(txHeader, payload, dataLen)) {
@@ -230,12 +237,12 @@ bool sendProgramVariableOnce() {
     }
     free(payload);
 
-    if (cbl.get(rxHeader, rxBuffer, &rxLen, 64) || rxHeader[1] != 0x56) {
+    if (cbl.get(rxHeader, rxBuffer, &rxLen, 64) || rxHeader[1] != kTiCmdAcknowledge) {
         Serial.println("No ACK after DATA");
         return false;
     }
 
-    txHeader[1] = 0x92;
+    txHeader[1] = kTiCmdEndOfTransmission;
     txHeader[2] = 0;
     txHeader[3] = 0;
     if (cbl.send(txHeader, nullptr, 0)) {
@@ -243,7 +250,8 @@ bool sendProgramVariableOnce() {
         return false;
     }
 
-    if (cbl.get(rxHeader, rxBuffer, &rxLen, 64, 5000000) || rxHeader[1] != 0x56) {
+    if (cbl.get(rxHeader, rxBuffer, &rxLen, 64, kEotAckTimeoutUs) ||
+        rxHeader[1] != kTiCmdAcknowledge) {
         Serial.println("No ACK after EOT (treating as success)");
         return true;
     }
