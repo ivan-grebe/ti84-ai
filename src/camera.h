@@ -14,6 +14,27 @@ static size_t lastJpegLen = 0;
 static uint16_t lastJpegWidth = 0;
 static uint16_t lastJpegHeight = 0;
 static unsigned long lastCaptureMs = 0;
+static framesize_t configuredFrameSize = CAM_FRAMESIZE;
+static int configuredJpegQuality = CAM_JPEG_QUALITY;
+static uint8_t configuredProfile = CAM_PROFILE_DEFAULT;
+
+static uint8_t resolveQualityProfile(uint8_t profile, framesize_t *frameSize, int *jpegQuality) {
+    switch (normalizeCameraProfileValue(profile)) {
+        case CAM_PROFILE_LOW:
+            *frameSize = FRAMESIZE_VGA;
+            *jpegQuality = 10;
+            return CAM_PROFILE_LOW;
+        case CAM_PROFILE_HIGH:
+            *frameSize = FRAMESIZE_UXGA;
+            *jpegQuality = 6;
+            return CAM_PROFILE_HIGH;
+        case CAM_PROFILE_BALANCED:
+        default:
+            *frameSize = CAM_FRAMESIZE;
+            *jpegQuality = CAM_JPEG_QUALITY;
+            return CAM_PROFILE_BALANCED;
+    }
+}
 
 static void clearLastCapture() {
     if (lastJpeg) {
@@ -76,10 +97,9 @@ bool init() {
     config.pixel_format = PIXFORMAT_JPEG;
     config.grab_mode    = CAMERA_GRAB_LATEST;
 
-    // Use PSRAM for frame buffers if available
     if (psramFound()) {
-        config.frame_size   = CAM_FRAMESIZE;
-        config.jpeg_quality = CAM_JPEG_QUALITY;
+        config.frame_size   = configuredFrameSize;
+        config.jpeg_quality = configuredJpegQuality;
         config.fb_count     = 2;
         config.fb_location  = CAMERA_FB_IN_PSRAM;
     } else {
@@ -95,29 +115,27 @@ bool init() {
         return false;
     }
 
-    // ── Fix upside-down + mirrored camera ──
     sensor_t *s = esp_camera_sensor_get();
     if (s) {
-        s->set_vflip(s, 1);     // Flip vertically (installed upside down)
-        s->set_hmirror(s, 0);   // Keep text readable left-to-right
+        s->set_vflip(s, 1);
+        s->set_hmirror(s, 0);
 
-        // ── Image quality improvements ──
-        s->set_brightness(s, 1);       // Slight brightness boost (-2 to 2)
-        s->set_contrast(s, 1);         // Slight contrast boost (-2 to 2)
-        s->set_saturation(s, 0);       // Normal saturation
-        s->set_whitebal(s, 1);         // Enable auto white balance
-        s->set_awb_gain(s, 1);         // Enable AWB gain
-        s->set_wb_mode(s, 0);          // Auto WB mode
-        s->set_exposure_ctrl(s, 1);    // Enable auto exposure
-        s->set_aec2(s, 1);             // Enable AEC DSP
-        s->set_ae_level(s, 1);         // Slight exposure boost (-2 to 2)
-        s->set_gain_ctrl(s, 1);        // Enable auto gain
-        s->set_agc_gain(s, 0);         // AGC gain starting point
-        s->set_gainceiling(s, (gainceiling_t)6);  // Max gain ceiling
-        s->set_bpc(s, 1);              // Black pixel correction
-        s->set_wpc(s, 1);              // White pixel correction
-        s->set_lenc(s, 1);             // Lens correction
-        s->set_raw_gma(s, 1);          // Gamma correction
+        s->set_brightness(s, 1);
+        s->set_contrast(s, 1);
+        s->set_saturation(s, 0);
+        s->set_whitebal(s, 1);
+        s->set_awb_gain(s, 1);
+        s->set_wb_mode(s, 0);
+        s->set_exposure_ctrl(s, 1);
+        s->set_aec2(s, 1);
+        s->set_ae_level(s, 1);
+        s->set_gain_ctrl(s, 1);
+        s->set_agc_gain(s, 0);
+        s->set_gainceiling(s, (gainceiling_t)6);
+        s->set_bpc(s, 1);
+        s->set_wpc(s, 1);
+        s->set_lenc(s, 1);
+        s->set_raw_gma(s, 1);
     }
 
     initialized = true;
@@ -125,15 +143,59 @@ bool init() {
     return true;
 }
 
-// Capture a JPEG frame. Caller must call esp_camera_fb_return() when done.
+bool applyQualityProfile(uint8_t profile) {
+    framesize_t frameSize = CAM_FRAMESIZE;
+    int jpegQuality = CAM_JPEG_QUALITY;
+    const uint8_t resolvedProfile = resolveQualityProfile(profile, &frameSize, &jpegQuality);
+
+    if (!psramFound()) {
+        configuredFrameSize = FRAMESIZE_QVGA;
+        configuredJpegQuality = 15;
+        configuredProfile = CAM_PROFILE_LOW;
+        Serial.println("Camera quality preset limited by missing PSRAM");
+        return true;
+    }
+
+    configuredProfile = resolvedProfile;
+    configuredFrameSize = frameSize;
+    configuredJpegQuality = jpegQuality;
+
+    if (!initialized) {
+        Serial.printf("Queued camera preset %u (%d, q=%d)\n",
+                      configuredProfile,
+                      static_cast<int>(configuredFrameSize),
+                      configuredJpegQuality);
+        return true;
+    }
+
+    sensor_t *s = esp_camera_sensor_get();
+    if (!s) {
+        Serial.println("Camera sensor unavailable for preset apply");
+        return false;
+    }
+
+    if (s->set_framesize(s, configuredFrameSize) != 0) {
+        Serial.println("Camera set_framesize failed");
+        return false;
+    }
+    if (s->set_quality(s, configuredJpegQuality) != 0) {
+        Serial.println("Camera set_quality failed");
+        return false;
+    }
+
+    Serial.printf("Applied camera preset %u (%d, q=%d)\n",
+                  configuredProfile,
+                  static_cast<int>(configuredFrameSize),
+                  configuredJpegQuality);
+    return true;
+}
+
 camera_fb_t* capture() {
     if (!initialized && !init()) return nullptr;
 
-    // Discard first frame (often has stale auto-exposure)
     camera_fb_t *fb = esp_camera_fb_get();
     if (fb) esp_camera_fb_return(fb);
 
-    // Capture the real frame
     fb = esp_camera_fb_get();
     if (!fb) {
         Serial.println("Camera capture failed");
@@ -143,21 +205,17 @@ camera_fb_t* capture() {
     return fb;
 }
 
-// Capture and return as base64-encoded string (using mbedtls)
 String captureBase64() {
     camera_fb_t *fb = capture();
     if (!fb) return "";
 
     storeLastCapture(fb);
 
-    // Calculate base64 output size
     size_t olen = 0;
     mbedtls_base64_encode(NULL, 0, &olen, fb->buf, fb->len);
 
-    // Allocate buffer and encode
     uint8_t *b64buf = (uint8_t *)ps_malloc(olen + 1);
     if (!b64buf) {
-        // Fallback to regular malloc if PSRAM unavailable
         b64buf = (uint8_t *)malloc(olen + 1);
     }
     if (!b64buf) {
@@ -206,5 +264,6 @@ uint16_t lastCaptureWidth() { return lastJpegWidth; }
 uint16_t lastCaptureHeight() { return lastJpegHeight; }
 unsigned long lastCaptureTime() { return lastCaptureMs; }
 bool hasLastCapture() { return lastJpeg != nullptr && lastJpegLen > 0; }
+uint8_t qualityProfile() { return configuredProfile; }
 
 }  // namespace Camera

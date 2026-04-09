@@ -6,6 +6,7 @@
 #include <Preferences.h>
 #include "config.h"
 #include "camera.h"
+#include "web_ui.h"
 
 namespace WifiManager {
 
@@ -13,6 +14,8 @@ static Preferences prefs;
 static String savedSSID;
 static String savedPass;
 static String savedAPIKey;
+static bool savedDebugApEnabled = DEFAULT_DEBUG_AP_ENABLED;
+static uint8_t savedCameraProfile = CAM_PROFILE_DEFAULT;
 static WebServer configServer(80);
 static WebServer debugServer(81);
 static bool portalActive = false;
@@ -22,29 +25,67 @@ static bool debugApStarted = false;
 void startDebugServer();
 void startDebugAccessPoint();
 
-// ── NVS operations ──
+void cacheSettings(const String &ssid,
+                   const String &pass,
+                   const String &apiKey,
+                   bool debugApEnabled,
+                   uint8_t cameraProfile) {
+    savedSSID = ssid;
+    savedPass = pass;
+    savedAPIKey = apiKey;
+    savedDebugApEnabled = debugApEnabled;
+    savedCameraProfile = normalizeCameraProfileValue(cameraProfile);
+}
+
+void sendJpegResponse(WebServer &server, const uint8_t *jpegData, size_t jpegLen) {
+    server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    server.setContentLength(jpegLen);
+    server.send(200, "image/jpeg", "");
+    server.client().write(jpegData, jpegLen);
+}
+
+// NVS operations
 
 void loadCredentials() {
     prefs.begin(NVS_NAMESPACE, true);
-    savedSSID   = prefs.getString(NVS_KEY_SSID, "");
-    savedPass   = prefs.getString(NVS_KEY_PASS, "");
-    savedAPIKey = prefs.getString(NVS_KEY_APIKEY, "");
+    cacheSettings(prefs.getString(NVS_KEY_SSID, ""),
+                  prefs.getString(NVS_KEY_PASS, ""),
+                  prefs.getString(NVS_KEY_APIKEY, ""),
+                  prefs.getBool(NVS_KEY_DEBUGAP, DEFAULT_DEBUG_AP_ENABLED),
+                  prefs.getUChar(NVS_KEY_CAMPROF, CAM_PROFILE_DEFAULT));
     prefs.end();
 }
 
-void saveCredentials(const String &ssid, const String &pass, const String &apiKey) {
+void saveSettings(const String &ssid,
+                  const String &passInput,
+                  const String &apiKeyInput,
+                  bool debugApEnabled,
+                  uint8_t cameraProfile) {
+    const String effectivePass =
+        (passInput.length() == 0 && ssid == savedSSID) ? savedPass : passInput;
+    const String effectiveApiKey =
+        (apiKeyInput.length() > 0) ? apiKeyInput : savedAPIKey;
+    const uint8_t effectiveCameraProfile = normalizeCameraProfileValue(cameraProfile);
+
     prefs.begin(NVS_NAMESPACE, false);
     prefs.putString(NVS_KEY_SSID, ssid);
-    prefs.putString(NVS_KEY_PASS, pass);
-    prefs.putString(NVS_KEY_APIKEY, apiKey);
+    prefs.putString(NVS_KEY_PASS, effectivePass);
+    prefs.putString(NVS_KEY_APIKEY, effectiveApiKey);
+    prefs.putBool(NVS_KEY_DEBUGAP, debugApEnabled);
+    prefs.putUChar(NVS_KEY_CAMPROF, effectiveCameraProfile);
     prefs.end();
-    savedSSID   = ssid;
-    savedPass   = pass;
-    savedAPIKey = apiKey;
+
+    cacheSettings(ssid,
+                  effectivePass,
+                  effectiveApiKey,
+                  debugApEnabled,
+                  effectiveCameraProfile);
 }
 
 String getAPIKey() { return savedAPIKey; }
 bool hasCredentials() { return savedSSID.length() > 0 && savedAPIKey.length() > 0; }
+bool isDebugApEnabled() { return savedDebugApEnabled; }
+uint8_t cameraQualityProfile() { return savedCameraProfile; }
 
 void stopConfigPortal() {
     if (!portalActive) return;
@@ -53,7 +94,7 @@ void stopConfigPortal() {
     Serial.println("Config portal stopped");
 }
 
-// ── WiFi STA ──
+// WiFi station mode
 
 bool connect(unsigned long timeoutMs = 15000) {
     if (savedSSID.length() == 0) return false;
@@ -70,15 +111,21 @@ bool connect(unsigned long timeoutMs = 15000) {
         delay(250);
     }
     if (WiFi.status() == WL_CONNECTED) {
-        startDebugAccessPoint();
         startDebugServer();
+        if (savedDebugApEnabled) {
+            startDebugAccessPoint();
+        } else {
+            Serial.println("TI84CAM hotspot disabled in settings");
+        }
         Serial.printf("Connected! IP: %s\n", WiFi.localIP().toString().c_str());
         Serial.printf("DNS1=%s DNS2=%s\n",
                       WiFi.dnsIP(0).toString().c_str(),
                       WiFi.dnsIP(1).toString().c_str());
         Serial.printf("Camera debug page: http://%s:81/\n", WiFi.localIP().toString().c_str());
-        Serial.printf("Camera debug AP: %s  http://%s:81/\n",
-                      DEBUG_AP_SSID, DEBUG_AP_IP.toString().c_str());
+        if (savedDebugApEnabled) {
+            Serial.printf("Camera debug AP: %s  http://%s:81/\n",
+                          DEBUG_AP_SSID, DEBUG_AP_IP.toString().c_str());
+        }
         return true;
     }
     Serial.println("WiFi connection failed");
@@ -95,104 +142,11 @@ void disconnect() {
 
 bool isConnected() { return WiFi.status() == WL_CONNECTED; }
 
-// ── Config Portal HTML ──
-
-static const char CONFIG_HTML[] PROGMEM = R"rawliteral(
-<!DOCTYPE html>
-<html>
-<head>
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TI-84 AI Setup</title>
-<style>
-body{font-family:monospace;max-width:400px;margin:40px auto;padding:0 20px;background:#1a1a2e;color:#e0e0e0}
-h1{color:#00d4aa;text-align:center}
-label{display:block;margin:12px 0 4px;color:#00d4aa}
-input{width:100%;padding:8px;box-sizing:border-box;background:#16213e;border:1px solid #00d4aa;color:#e0e0e0;border-radius:4px}
-button{width:100%;padding:12px;margin-top:20px;background:#00d4aa;color:#1a1a2e;border:none;border-radius:4px;font-weight:bold;font-size:16px;cursor:pointer}
-button:hover{background:#00b894}
-.info{font-size:12px;color:#888;margin-top:4px}
-</style>
-</head>
-<body>
-<h1>TI-84 AI Setup</h1>
-<form method="POST" action="/save">
-<label>WiFi Network Name</label>
-<input name="ssid" required placeholder="Your WiFi SSID">
-<label>WiFi Password</label>
-<input name="pass" type="password" placeholder="Leave blank if open">
-<label>OpenAI API Key</label>
-<input name="apikey" required placeholder="sk-...">
-<div class="info">Get yours at platform.openai.com/api-keys</div>
-<button type="submit">Save and Restart</button>
-</form>
-</body>
-</html>
-)rawliteral";
-
-static const char SAVED_HTML[] PROGMEM = R"rawliteral(
-<!DOCTYPE html>
-<html>
-<head>
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Saved</title>
-<style>
-body{font-family:monospace;max-width:400px;margin:40px auto;padding:0 20px;background:#1a1a2e;color:#e0e0e0;text-align:center}
-h1{color:#00d4aa}
-</style>
-</head>
-<body>
-<h1>Saved!</h1>
-<p>Credentials saved. The device will now restart and connect to your WiFi.</p>
-<p>Run prgmTIAI on your calculator.</p>
-</body>
-</html>
-)rawliteral";
-
-static const char DEBUG_HTML[] PROGMEM = R"rawliteral(
-<!DOCTYPE html>
-<html>
-<head>
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TI-84 AI Camera Debug</title>
-<style>
-body{font-family:monospace;max-width:900px;margin:20px auto;padding:0 16px;background:#10151c;color:#e8f0f7}
-h1{color:#86efac}
-a,button{color:#10151c;background:#86efac;border:none;border-radius:6px;padding:10px 14px;text-decoration:none;font-weight:bold;cursor:pointer}
-.row{display:flex;gap:12px;flex-wrap:wrap;margin:14px 0}
-.card{background:#182230;border:1px solid #2a3b50;border-radius:10px;padding:12px;flex:1;min-width:280px}
-img{width:100%;height:auto;border-radius:8px;background:#0b0f14;border:1px solid #2a3b50}
-code{color:#93c5fd}
-</style>
-</head>
-<body>
-<h1>TI-84 AI Camera Debug</h1>
-<p>Use this to tune the actual JPEG coming from the ESP32 camera.</p>
-<div class="row">
-<button onclick="refreshLive()">Capture Fresh Preview</button>
-<button onclick="refreshLast()">Refresh Last Sent Image</button>
-</div>
-<div class="card">
-<p><strong>Live preview</strong> from the camera right now: <code>/capture.jpg</code></p>
-<img id="live" src="/capture.jpg?ts=0" alt="Live camera preview">
-</div>
-<div class="card">
-<p><strong>Last image sent to OpenAI</strong>: <code>/last.jpg</code></p>
-<img id="last" src="/last.jpg?ts=0" alt="Last image sent to OpenAI">
-</div>
-<script>
-function refreshLive(){document.getElementById('live').src='/capture.jpg?ts='+Date.now();}
-function refreshLast(){document.getElementById('last').src='/last.jpg?ts='+Date.now();}
-refreshLast();
-</script>
-</body>
-</html>
-)rawliteral";
-
 void startDebugServer() {
     if (debugServerStarted) return;
 
     debugServer.on("/", HTTP_GET, []() {
-        debugServer.send(200, "text/html", DEBUG_HTML);
+        debugServer.send(200, "text/html", WebUi::DEBUG_HTML);
     });
 
     debugServer.on("/capture.jpg", HTTP_GET, []() {
@@ -203,10 +157,7 @@ void startDebugServer() {
             return;
         }
 
-        debugServer.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-        debugServer.setContentLength(jpegLen);
-        debugServer.send(200, "image/jpeg", "");
-        debugServer.client().write(jpeg, jpegLen);
+        sendJpegResponse(debugServer, jpeg, jpegLen);
         Serial.printf("Served live preview: %u bytes\n", (unsigned)jpegLen);
         free(jpeg);
     });
@@ -217,16 +168,15 @@ void startDebugServer() {
             return;
         }
 
-        debugServer.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-        debugServer.setContentLength(Camera::lastCaptureSize());
-        debugServer.send(200, "image/jpeg", "");
-        debugServer.client().write(Camera::lastCaptureData(), Camera::lastCaptureSize());
+        sendJpegResponse(debugServer, Camera::lastCaptureData(), Camera::lastCaptureSize());
         Serial.printf("Served last capture: %u bytes\n", (unsigned)Camera::lastCaptureSize());
     });
 
     debugServer.on("/status", HTTP_GET, []() {
         String json = "{";
         json += "\"wifi\":\"" + WiFi.localIP().toString() + "\",";
+        json += "\"debug_ap\":" + String(savedDebugApEnabled ? "true" : "false") + ",";
+        json += "\"camera_profile\":" + String(savedCameraProfile) + ",";
         json += "\"has_last\":" + String(Camera::hasLastCapture() ? "true" : "false") + ",";
         json += "\"last_size\":" + String((unsigned)Camera::lastCaptureSize()) + ",";
         json += "\"last_width\":" + String(Camera::lastCaptureWidth()) + ",";
@@ -242,6 +192,9 @@ void startDebugServer() {
 }
 
 void startDebugAccessPoint() {
+    if (!savedDebugApEnabled) {
+        return;
+    }
     if (debugApStarted) return;
 
     WiFi.mode(WIFI_AP_STA);
@@ -258,9 +211,8 @@ void startDebugAccessPoint() {
     Serial.printf("Debug AP started: %s (pass: %s)\n", DEBUG_AP_SSID, DEBUG_AP_PASS);
 }
 
-// ── Non-blocking config portal ──
+// Non-blocking config portal.
 // Call startConfigPortal() once, then handleConfigPortal() in loop().
-// This allows CBL2 to keep running alongside the web server.
 
 void startConfigPortal() {
     if (portalActive) return;
@@ -278,22 +230,33 @@ void startConfigPortal() {
     Serial.printf("Camera debug page: http://%s:81/\n", WiFi.softAPIP().toString().c_str());
 
     configServer.on("/", HTTP_GET, []() {
-        configServer.send(200, "text/html", CONFIG_HTML);
+        WebUi::PortalState state;
+        state.savedSSID = savedSSID;
+        state.hasApiKey = savedAPIKey.length() > 0;
+        state.debugApEnabled = savedDebugApEnabled;
+        state.cameraProfile = savedCameraProfile;
+        configServer.send(200, "text/html", WebUi::renderConfigHtml(state));
     });
 
     configServer.on("/save", HTTP_POST, []() {
-        String ssid   = configServer.arg("ssid");
-        String pass   = configServer.arg("pass");
-        String apikey = configServer.arg("apikey");
+        const String ssid = configServer.arg("ssid");
+        const String pass = configServer.arg("pass");
+        const String apikey = configServer.arg("apikey");
+        const bool debugApEnabled = configServer.hasArg("debugap");
+        const uint8_t cameraProfile =
+            normalizeCameraProfileValue(
+                static_cast<uint8_t>(configServer.arg("cam_profile").toInt()));
+        const String effectiveApiKey = apikey.length() > 0 ? apikey : savedAPIKey;
 
-        if (ssid.length() > 0 && apikey.length() > 0) {
-            saveCredentials(ssid, pass, apikey);
-            configServer.send(200, "text/html", SAVED_HTML);
-            delay(2000);
-            ESP.restart();
-        } else {
-            configServer.send(400, "text/plain", "Missing required fields");
+        if (ssid.length() == 0 || effectiveApiKey.length() == 0) {
+            configServer.send(400, "text/plain", "WiFi SSID and API key are required");
+            return;
         }
+
+        saveSettings(ssid, pass, apikey, debugApEnabled, cameraProfile);
+        configServer.send(200, "text/html", WebUi::SAVED_HTML);
+        delay(2000);
+        ESP.restart();
     });
 
     configServer.begin();
