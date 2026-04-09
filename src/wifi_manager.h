@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include <ArduinoJson.h>
 #include <WiFi.h>
 #include <WebServer.h>
 #include <Preferences.h>
@@ -181,16 +182,18 @@ void startDebugServer() {
     });
 
     debugServer.on("/status", HTTP_GET, []() {
-        String json = "{";
-        json += "\"wifi\":\"" + WiFi.localIP().toString() + "\",";
-        json += "\"debug_ap\":" + String(savedDebugApEnabled ? "true" : "false") + ",";
-        json += "\"camera_profile\":" + String(savedCameraProfile) + ",";
-        json += "\"has_last\":" + String(Camera::hasLastCapture() ? "true" : "false") + ",";
-        json += "\"last_size\":" + String((unsigned)Camera::lastCaptureSize()) + ",";
-        json += "\"last_width\":" + String(Camera::lastCaptureWidth()) + ",";
-        json += "\"last_height\":" + String(Camera::lastCaptureHeight()) + ",";
-        json += "\"last_ms\":" + String(Camera::lastCaptureTime());
-        json += "}";
+        StaticJsonDocument<256> doc;
+        doc["wifi"] = WiFi.localIP().toString();
+        doc["debug_ap"] = savedDebugApEnabled;
+        doc["camera_profile"] = savedCameraProfile;
+        doc["has_last"] = Camera::hasLastCapture();
+        doc["last_size"] = static_cast<unsigned>(Camera::lastCaptureSize());
+        doc["last_width"] = Camera::lastCaptureWidth();
+        doc["last_height"] = Camera::lastCaptureHeight();
+        doc["last_ms"] = Camera::lastCaptureTime();
+
+        String json;
+        serializeJson(doc, json);
         debugServer.send(200, "application/json", json);
     });
 

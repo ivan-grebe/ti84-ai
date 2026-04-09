@@ -90,51 +90,35 @@ STORE = {
     '->':     [0x04],
 }
 
+SORTED_COMMANDS = sorted(COMMANDS.items(), key=lambda item: -len(item[0]))
+SORTED_VARIABLES = sorted(VARIABLES.items(), key=lambda item: -len(item[0]))
+SORTED_STORE = sorted(STORE.items(), key=lambda item: -len(item[0]))
+SORTED_COMPARISONS = sorted(COMPARISONS.items(), key=lambda item: -len(item[0]))
+TOKEN_TABLES = (
+    SORTED_COMMANDS,
+    SORTED_VARIABLES,
+    SORTED_STORE,
+    SORTED_COMPARISONS,
+)
+
+
+def match_token(line, start):
+    for table in TOKEN_TABLES:
+        for text, token_bytes in table:
+            if line[start:].startswith(text):
+                return text, token_bytes
+    return None, None
+
+
 def tokenize_line(line):
     tokens = []
     i = 0
 
     while i < len(line):
-        matched = False
-
-        for cmd, tok in sorted(COMMANDS.items(), key=lambda x: -len(x[0])):
-            if line[i:].startswith(cmd):
-                tokens.extend(tok)
-                i += len(cmd)
-                matched = True
-                break
-
-        if matched:
-            continue
-
-        for var, tok in sorted(VARIABLES.items(), key=lambda x: -len(x[0])):
-            if line[i:].startswith(var):
-                tokens.extend(tok)
-                i += len(var)
-                matched = True
-                break
-
-        if matched:
-            continue
-
-        for arrow, tok in STORE.items():
-            if line[i:].startswith(arrow):
-                tokens.extend(tok)
-                i += len(arrow)
-                matched = True
-                break
-
-        if matched:
-            continue
-
-        for comp, tok in COMPARISONS.items():
-            if line[i:].startswith(comp):
-                tokens.extend(tok)
-                i += len(comp)
-                matched = True
-                break
-
-        if matched:
+        text, token_bytes = match_token(line, i)
+        if text is not None:
+            tokens.extend(token_bytes)
+            i += len(text)
             continue
 
         ch = line[i]
