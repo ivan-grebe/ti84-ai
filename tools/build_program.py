@@ -220,7 +220,7 @@ Disp ""
 Disp "1:SEND MESSAGE"
 Disp "2:TAKE PHOTO"
 Disp "3:SETTINGS"
-Disp "0:EXIT"
+Disp "CLEAR: EXIT"
 Disp ""
 0->K
 Repeat K
@@ -243,7 +243,12 @@ Stop
 Goto M
 Lbl T
 ClrHome
+If X=1
+Then
+Disp "REPLY TO MESSAGE"
+Else
 Disp "SEND MESSAGE"
+End
 Disp ""
 Disp "ENTER: TYPE"
 Disp "CLEAR: BACK"
@@ -252,7 +257,11 @@ Repeat K
 getKey->K
 End
 If K=45
+Then
+If X=1
+Goto R
 Goto M
+End
 If K!=105
 Goto T
 ClrHome
@@ -440,7 +449,7 @@ Disp ""
 Disp "1:CONNECT"
 Disp "2:DISCONNECT"
 Disp "3:CONFIGURE"
-Disp "0:BACK"
+Disp "CLEAR: BACK"
 Disp ""
 0->K
 Repeat K
