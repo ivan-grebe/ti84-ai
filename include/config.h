@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdint.h>
+
 // Link port pins (2.5mm jack)
 #define PIN_TIP   D0
 #define PIN_RING  D1
@@ -8,18 +10,20 @@
 #define PASSWORD  69420
 
 // Display and pagination
-#define PAGE_SIZE     48
 #define SCREEN_WIDTH  16
-#define SCREEN_ROWS   8
 
 // Camera
 #define CAM_XCLK_FREQ      20000000
 #define CAM_JPEG_QUALITY   7
 #define CAM_FRAMESIZE      FRAMESIZE_SXGA
+#define CAM_PROFILE_LOW       0
+#define CAM_PROFILE_BALANCED  1
+#define CAM_PROFILE_HIGH      2
+#define CAM_PROFILE_DEFAULT   CAM_PROFILE_BALANCED
 
 // OpenAI
 #define OPENAI_HOST   "api.openai.com"
-#define OPENAI_PATH   "/v1/chat/completions"
+#define OPENAI_PATH   "/v1/responses"
 #define OPENAI_MODEL  "gpt-5.4"
 
 // WiFi AP portals
@@ -37,6 +41,20 @@
 #define NVS_KEY_SSID   "wifi_ssid"
 #define NVS_KEY_PASS   "wifi_pass"
 #define NVS_KEY_APIKEY "api_key"
+#define NVS_KEY_DEBUGAP "debug_ap"
+#define NVS_KEY_CAMPROF "cam_prof"
+#define DEFAULT_DEBUG_AP_ENABLED true
+
+static inline uint8_t normalizeCameraProfileValue(uint8_t profile) {
+    switch (profile) {
+        case CAM_PROFILE_LOW:
+        case CAM_PROFILE_BALANCED:
+        case CAM_PROFILE_HIGH:
+            return profile;
+        default:
+            return CAM_PROFILE_DEFAULT;
+    }
+}
 
 // Model prompts
 #define SYSTEM_PROMPT \
