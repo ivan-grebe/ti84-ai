@@ -43,6 +43,7 @@
 #define NVS_KEY_APIKEY "api_key"
 #define NVS_KEY_DEBUGAP "debug_ap"
 #define NVS_KEY_CAMPROF "cam_prof"
+#define NVS_KEY_EAP_IDENTITY "eap_id"
 #define NVS_KEY_PHOTORECAP "photo_recap"
 #define DEFAULT_DEBUG_AP_ENABLED true
 #define DEFAULT_PHOTO_RECAP_ENABLED false
