@@ -61,15 +61,15 @@ platformio.ini        - PlatformIO environment
 
 ## Development Setup
 
-You need four things installed before you can build:
+You need three things installed before you can build:
 
 1. **Python 3** -- https://www.python.org/downloads/
-   - During install, check **Add Python to PATH**
-2. **Visual Studio Code** -- https://code.visualstudio.com/
-3. **PlatformIO IDE** -- install it as a VS Code extension
-4. **Git** -- https://git-scm.com/download/win (if not already installed)
+2. **Git** -- https://git-scm.com/downloads
+3. **PlatformIO**
+   - Option A: install the **PlatformIO IDE** VS Code extension
+   - Option B: install **PlatformIO Core** for command-line builds (`pipx install platformio`)
 
-After installing PlatformIO, restart VS Code, then open this project folder.
+After installing PlatformIO, open this project folder in VS Code or in your shell.
 
 > If you use the VS Code extension you do not need to install PlatformIO Core separately.
 
@@ -79,20 +79,44 @@ PlatformIO docs: [VS Code extension](https://docs.platformio.org/en/latest/integ
 
 Build the firmware:
 
-```powershell
+```bash
 platformio run
 ```
 
 Flash to the ESP32:
 
-```powershell
+```bash
 platformio run --target upload
+```
+
+List connected serial devices if PlatformIO does not auto-detect the board:
+
+```bash
+platformio device list
+```
+
+Flash to a specific port if needed:
+
+```bash
+platformio run --target upload --upload-port /dev/ttyACM0
 ```
 
 Open the serial monitor:
 
-```powershell
-platformio device monitor --port COM4 --baud 115200
+```bash
+platformio device monitor --baud 115200
+```
+
+Or target a specific port:
+
+```bash
+platformio device monitor --port /dev/ttyACM0 --baud 115200
+```
+
+On Linux, if upload or monitor fails with `Permission denied`, add your user to the `dialout` group and sign out/in before retrying:
+
+```bash
+sudo usermod -aG dialout "$USER"
 ```
 
 ## First-Time Calculator Setup
@@ -128,9 +152,9 @@ When enabled and connected to WiFi, the ESP32 also starts a secondary AP called 
 
 If you edit the TI-BASIC source in `tools/build_program.py`:
 
-```powershell
-python tools/build_program.py          # regenerate the tokenized program
-platformio run --target upload          # flash the updated firmware
+```bash
+python3 tools/build_program.py         # regenerate the tokenized program
+platformio run --target upload         # flash the updated firmware
 ```
 
 Then on the calculator, run `Send({1})` again to install the new version of `TIAI`.

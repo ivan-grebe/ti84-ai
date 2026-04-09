@@ -53,7 +53,6 @@ bool unlocked = false;
 bool unlockArmed = false;
 bool sendProgramFlag = false;
 bool startConfigFlag = false;
-bool connectFlag = false;
 PendingTextCommand pendingTextCommand = PendingTextCommand::None;
 unsigned long lastHeartbeat = 0;
 unsigned long sendProgramAt = 0;
@@ -115,7 +114,6 @@ void resetPendingTextCommand() {
 void resetUnlockedSessionState() {
     resetPendingTextCommand();
     clearQueuedResponse();
-    connectFlag = false;
 }
 
 void swapDisplayLineArrays(String *lhs, String *rhs) {
@@ -437,9 +435,17 @@ void cmdConnect() {
         queueResponse("CONNECTED");
         return;
     }
+    if (WifiManager::isConnectPending()) {
+        // Already connecting; don't queue anything so TI-BASIC poll loop
+        // keeps spinning on "READY" until pollConnect() delivers the result.
+        return;
+    }
 
-    connectFlag = true;
-    Serial.println("Queued WiFi connect");
+    if (!WifiManager::beginConnect()) {
+        queueError("NO WIFI CFG");
+    }
+    // No response queued -- pollConnect() in loop() will queue
+    // "CONNECTED" or "WIFI FAILED" when the handshake finishes.
 }
 
 void cmdDisconnect() {
@@ -679,17 +685,17 @@ void loop() {
     const unsigned long now = millis();
     if (now - lastHeartbeat >= kHeartbeatIntervalMs) {
         lastHeartbeat = now;
-        Serial.printf("[%lus] alive, unlocked=%d\n", now / 1000, unlocked);
+        Serial.printf("[%lus] alive, unlocked=%d wifi=%d pending=%d\n",
+                      now / 1000, unlocked, WiFi.status(), WifiManager::isConnectPending());
     }
 
     WifiManager::handleConfigPortal();
 
-    if (connectFlag) {
-        connectFlag = false;
-        Serial.println("Running queued WiFi connect...");
-        if (WifiManager::isConnected() || WifiManager::connect()) {
+    if (WifiManager::isConnectPending()) {
+        WifiManager::ConnectResult result = WifiManager::pollConnect();
+        if (result == WifiManager::ConnectResult::Connected) {
             queueResponse("CONNECTED");
-        } else {
+        } else if (result == WifiManager::ConnectResult::Failed) {
             queueError("WIFI FAILED");
         }
     }

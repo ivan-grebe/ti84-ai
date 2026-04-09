@@ -8,6 +8,7 @@ namespace WebUi {
 
 struct PortalState {
     String savedSSID;
+    String savedEapIdentity;
     bool hasApiKey = false;
     bool debugApEnabled = DEFAULT_DEBUG_AP_ENABLED;
     uint8_t cameraProfile = CAM_PROFILE_DEFAULT;
@@ -95,6 +96,9 @@ button:hover{background:#00b894}
 <div>Saved API key: )rawliteral";
     html += state.hasApiKey ? "present" : "missing";
     html += R"rawliteral(</div>
+<div>EAP Identity: )rawliteral";
+    html += state.savedEapIdentity.length() > 0 ? htmlEscape(state.savedEapIdentity) : "(none - standard WiFi)";
+    html += R"rawliteral(</div>
 <div>TI84CAM hotspot: )rawliteral";
     html += state.debugApEnabled ? "enabled" : "disabled";
     html += R"rawliteral(</div>
@@ -113,6 +117,11 @@ button:hover{background:#00b894}
 <label>WiFi Password</label>
 <input name="pass" type="password" placeholder="Leave blank to keep current password for this SSID">
 <div class="info">If you change to a new SSID and leave this blank, the network is treated as open.</div>
+<label>EAP Identity (eduroam only)</label>
+<input name="eap_identity" placeholder="e.g. user@csu.fullerton.edu" value=")rawliteral";
+    html += htmlEscape(state.savedEapIdentity);
+    html += R"rawliteral(">
+<div class="info">For eduroam / WPA2-Enterprise. Set SSID to "eduroam", enter your school identity here, and your password above. Leave blank for normal WiFi.</div>
 <label>OpenAI API Key</label>
 <input name="apikey" placeholder="Leave blank to keep current key">
 <div class="info">Current key is )rawliteral";

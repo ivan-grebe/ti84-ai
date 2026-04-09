@@ -5,6 +5,8 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <Preferences.h>
+#include "esp_eap_client.h"
+#include "esp_wifi.h"
 #include "config.h"
 #include "camera.h"
 #include "web_ui.h"
@@ -15,6 +17,7 @@ static Preferences prefs;
 static String savedSSID;
 static String savedPass;
 static String savedAPIKey;
+static String savedEapIdentity;
 static bool savedDebugApEnabled = DEFAULT_DEBUG_AP_ENABLED;
 static uint8_t savedCameraProfile = CAM_PROFILE_DEFAULT;
 static bool savedPhotoRecapEnabled = DEFAULT_PHOTO_RECAP_ENABLED;
@@ -23,6 +26,14 @@ static WebServer debugServer(81);
 static bool portalActive = false;
 static bool debugServerStarted = false;
 static bool debugApStarted = false;
+static bool connectPending = false;
+static unsigned long connectDeadline = 0;
+
+constexpr unsigned long kWifiTimeoutMs = 15000;
+constexpr unsigned long kEnterpriseTimeoutMs = 30000;
+constexpr unsigned long kEnterpriseAsyncTimeoutMs = 45000;
+
+enum class ConnectResult : int8_t { Pending = 0, Connected = 1, Failed = -1 };
 
 void startDebugServer();
 void startDebugAccessPoint();
@@ -30,12 +41,14 @@ void startDebugAccessPoint();
 void cacheSettings(const String &ssid,
                    const String &pass,
                    const String &apiKey,
+                   const String &eapIdentity,
                    bool debugApEnabled,
                    uint8_t cameraProfile,
                    bool photoRecapEnabled) {
     savedSSID = ssid;
     savedPass = pass;
     savedAPIKey = apiKey;
+    savedEapIdentity = eapIdentity;
     savedDebugApEnabled = debugApEnabled;
     savedCameraProfile = normalizeCameraProfileValue(cameraProfile);
     savedPhotoRecapEnabled = photoRecapEnabled;
@@ -55,15 +68,20 @@ void loadCredentials() {
     cacheSettings(prefs.getString(NVS_KEY_SSID, ""),
                   prefs.getString(NVS_KEY_PASS, ""),
                   prefs.getString(NVS_KEY_APIKEY, ""),
+                  prefs.getString(NVS_KEY_EAP_IDENTITY, ""),
                   prefs.getBool(NVS_KEY_DEBUGAP, DEFAULT_DEBUG_AP_ENABLED),
                   prefs.getUChar(NVS_KEY_CAMPROF, CAM_PROFILE_DEFAULT),
                   prefs.getBool(NVS_KEY_PHOTORECAP, DEFAULT_PHOTO_RECAP_ENABLED));
     prefs.end();
+    Serial.printf("NVS loaded: SSID='%s' EAP='%s' pass_len=%d apikey_len=%d enterprise=%d\n",
+                  savedSSID.c_str(), savedEapIdentity.c_str(),
+                  savedPass.length(), savedAPIKey.length(), savedEapIdentity.length() > 0);
 }
 
 void saveSettings(const String &ssid,
                   const String &passInput,
                   const String &apiKeyInput,
+                  const String &eapIdentity,
                   bool debugApEnabled,
                   uint8_t cameraProfile,
                   bool photoRecapEnabled) {
@@ -77,6 +95,7 @@ void saveSettings(const String &ssid,
     prefs.putString(NVS_KEY_SSID, ssid);
     prefs.putString(NVS_KEY_PASS, effectivePass);
     prefs.putString(NVS_KEY_APIKEY, effectiveApiKey);
+    prefs.putString(NVS_KEY_EAP_IDENTITY, eapIdentity);
     prefs.putBool(NVS_KEY_DEBUGAP, debugApEnabled);
     prefs.putUChar(NVS_KEY_CAMPROF, effectiveCameraProfile);
     prefs.putBool(NVS_KEY_PHOTORECAP, photoRecapEnabled);
@@ -85,12 +104,15 @@ void saveSettings(const String &ssid,
     cacheSettings(ssid,
                   effectivePass,
                   effectiveApiKey,
+                  eapIdentity,
                   debugApEnabled,
                   effectiveCameraProfile,
                   photoRecapEnabled);
 }
 
 String getAPIKey() { return savedAPIKey; }
+String getEapIdentity() { return savedEapIdentity; }
+bool isEnterprise() { return savedEapIdentity.length() > 0; }
 bool hasCredentials() { return savedSSID.length() > 0 && savedAPIKey.length() > 0; }
 bool isDebugApEnabled() { return savedDebugApEnabled; }
 uint8_t cameraQualityProfile() { return savedCameraProfile; }
@@ -105,28 +127,52 @@ void stopConfigPortal() {
 
 // WiFi station mode
 
-bool connect(unsigned long timeoutMs = 15000) {
+void startWiFiStation() {
+    WiFi.disconnect(true);
+    delay(200);
+    WiFi.mode(WIFI_STA);
+    WiFi.setSleep(false);
+    WiFi.setAutoReconnect(true);
+
+    if (isEnterprise()) {
+        Serial.printf("WPA2-Enterprise (PEAP) identity: %s\n", savedEapIdentity.c_str());
+        esp_eap_client_set_identity((uint8_t *)savedEapIdentity.c_str(), savedEapIdentity.length());
+        esp_eap_client_set_username((uint8_t *)savedEapIdentity.c_str(), savedEapIdentity.length());
+        esp_eap_client_set_password((uint8_t *)savedPass.c_str(), savedPass.length());
+        esp_wifi_sta_enterprise_enable();
+        WiFi.begin(savedSSID.c_str());
+    } else {
+        WiFi.begin(savedSSID.c_str(), savedPass.c_str());
+    }
+}
+
+void onStationConnected() {
+    startDebugServer();
+    if (savedDebugApEnabled) {
+        startDebugAccessPoint();
+    }
+    Serial.printf("Connected! IP: %s\n", WiFi.localIP().toString().c_str());
+}
+
+bool connect(unsigned long timeoutMs = kWifiTimeoutMs) {
     if (savedSSID.length() == 0) return false;
     Serial.printf("Connecting to WiFi: %s\n", savedSSID.c_str());
     stopConfigPortal();
     debugApStarted = false;
-    WiFi.mode(WIFI_STA);
-    WiFi.setSleep(false);
-    WiFi.setAutoReconnect(true);
-    WiFi.begin(savedSSID.c_str(), savedPass.c_str());
+
+    if (isEnterprise() && timeoutMs < kEnterpriseTimeoutMs) {
+        timeoutMs = kEnterpriseTimeoutMs;
+    }
+
+    startWiFiStation();
 
     unsigned long start = millis();
     while (WiFi.status() != WL_CONNECTED && millis() - start < timeoutMs) {
-        delay(250);
+        delay(500);
+        Serial.printf("  WiFi status: %d (%lums)\n", WiFi.status(), millis() - start);
     }
     if (WiFi.status() == WL_CONNECTED) {
-        startDebugServer();
-        if (savedDebugApEnabled) {
-            startDebugAccessPoint();
-        } else {
-            Serial.println("TI84CAM hotspot disabled in settings");
-        }
-        Serial.printf("Connected! IP: %s\n", WiFi.localIP().toString().c_str());
+        onStationConnected();
         Serial.printf("DNS1=%s DNS2=%s\n",
                       WiFi.dnsIP(0).toString().c_str(),
                       WiFi.dnsIP(1).toString().c_str());
@@ -141,9 +187,42 @@ bool connect(unsigned long timeoutMs = 15000) {
     return false;
 }
 
-void disconnect() {
+// Non-blocking connect: call beginConnect() once, then pollConnect() in loop().
+bool beginConnect() {
+    if (savedSSID.length() == 0) return false;
+    Serial.printf("beginConnect: SSID='%s' enterprise=%d\n", savedSSID.c_str(), isEnterprise());
     stopConfigPortal();
     debugApStarted = false;
+
+    startWiFiStation();
+
+    connectPending = true;
+    connectDeadline = millis() + (isEnterprise() ? kEnterpriseAsyncTimeoutMs : kWifiTimeoutMs);
+    return true;
+}
+
+ConnectResult pollConnect() {
+    if (!connectPending) return ConnectResult::Failed;
+    if (WiFi.status() == WL_CONNECTED) {
+        connectPending = false;
+        onStationConnected();
+        return ConnectResult::Connected;
+    }
+    if (millis() > connectDeadline) {
+        connectPending = false;
+        Serial.println("WiFi connection timed out");
+        return ConnectResult::Failed;
+    }
+    return ConnectResult::Pending;
+}
+
+bool isConnectPending() { return connectPending; }
+
+void disconnect() {
+    connectPending = false;
+    stopConfigPortal();
+    debugApStarted = false;
+    esp_wifi_sta_enterprise_disable();
     WiFi.disconnect(true);
     WiFi.mode(WIFI_OFF);
     Serial.println("WiFi disconnected");
@@ -243,6 +322,7 @@ void startConfigPortal() {
     configServer.on("/", HTTP_GET, []() {
         WebUi::PortalState state;
         state.savedSSID = savedSSID;
+        state.savedEapIdentity = savedEapIdentity;
         state.hasApiKey = savedAPIKey.length() > 0;
         state.debugApEnabled = savedDebugApEnabled;
         state.cameraProfile = savedCameraProfile;
@@ -254,6 +334,7 @@ void startConfigPortal() {
         const String ssid = configServer.arg("ssid");
         const String pass = configServer.arg("pass");
         const String apikey = configServer.arg("apikey");
+        const String eapIdentity = configServer.arg("eap_identity");
         const bool debugApEnabled = configServer.hasArg("debugap");
         const bool photoRecapEnabled = configServer.hasArg("photo_recap");
         const uint8_t cameraProfile =
@@ -269,6 +350,7 @@ void startConfigPortal() {
         saveSettings(ssid,
                      pass,
                      apikey,
+                     eapIdentity,
                      debugApEnabled,
                      cameraProfile,
                      photoRecapEnabled);
