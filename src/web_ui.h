@@ -11,6 +11,10 @@ struct PortalState {
     bool hasApiKey = false;
     bool debugApEnabled = DEFAULT_DEBUG_AP_ENABLED;
     uint8_t cameraProfile = CAM_PROFILE_DEFAULT;
+    uint8_t wifiAuthMode = WIFI_AUTH_MODE_DEFAULT;
+    String enterpriseIdentity;
+    String enterpriseUsername;
+    bool hasEnterprisePassword = false;
 };
 
 const char *cameraProfileLabel(uint8_t profile) {
@@ -22,6 +26,16 @@ const char *cameraProfileLabel(uint8_t profile) {
         case CAM_PROFILE_BALANCED:
         default:
             return "Balanced (SXGA)";
+    }
+}
+
+const char *wifiAuthModeLabel(uint8_t mode) {
+    switch (normalizeWifiAuthModeValue(mode)) {
+        case WIFI_AUTH_MODE_ENTERPRISE_PEAP:
+            return "WPA2 Enterprise (PEAP)";
+        case WIFI_AUTH_MODE_PERSONAL:
+        default:
+            return "Personal / Open";
     }
 }
 
@@ -57,15 +71,21 @@ String checkedAttr(bool value) {
     return value ? " checked" : "";
 }
 
-String selectedAttr(uint8_t current, uint8_t expected) {
+String selectedCameraAttr(uint8_t current, uint8_t expected) {
     return normalizeCameraProfileValue(current) == normalizeCameraProfileValue(expected)
+               ? " selected"
+               : "";
+}
+
+String selectedWifiAuthAttr(uint8_t current, uint8_t expected) {
+    return normalizeWifiAuthModeValue(current) == normalizeWifiAuthModeValue(expected)
                ? " selected"
                : "";
 }
 
 String renderConfigHtml(const PortalState &state) {
     String html;
-    html.reserve(2800);
+    html.reserve(4200);
     html += R"rawliteral(
 <!DOCTYPE html>
 <html>
@@ -94,6 +114,9 @@ button:hover{background:#00b894}
 <div>Saved API key: )rawliteral";
     html += state.hasApiKey ? "present" : "missing";
     html += R"rawliteral(</div>
+<div>WiFi security: )rawliteral";
+    html += wifiAuthModeLabel(state.wifiAuthMode);
+    html += R"rawliteral(</div>
 <div>TI84CAM hotspot: )rawliteral";
     html += state.debugApEnabled ? "enabled" : "disabled";
     html += R"rawliteral(</div>
@@ -106,9 +129,33 @@ button:hover{background:#00b894}
 <input name="ssid" required placeholder="Your WiFi SSID" value=")rawliteral";
     html += htmlEscape(state.savedSSID);
     html += R"rawliteral(">
+<label>WiFi Security</label>
+<select name="wifi_mode">
+<option value="0")rawliteral";
+    html += selectedWifiAuthAttr(state.wifiAuthMode, WIFI_AUTH_MODE_PERSONAL);
+    html += R"rawliteral(>Personal / Open</option>
+<option value="1")rawliteral";
+    html += selectedWifiAuthAttr(state.wifiAuthMode, WIFI_AUTH_MODE_ENTERPRISE_PEAP);
+    html += R"rawliteral(>WPA2 Enterprise (PEAP)</option>
+</select>
+<div class="info">Use WPA2 Enterprise for common eduroam-style username/password networks.</div>
 <label>WiFi Password</label>
 <input name="pass" type="password" placeholder="Leave blank to keep current password for this SSID">
-<div class="info">If you change to a new SSID and leave this blank, the network is treated as open.</div>
+<div class="info">Only used for Personal / Open networks. If you change to a new SSID and leave this blank, the network is treated as open.</div>
+<label>Enterprise Identity</label>
+<input name="eap_identity" placeholder="Optional outer identity. Leave blank to use username." value=")rawliteral";
+    html += htmlEscape(state.enterpriseIdentity);
+    html += R"rawliteral(">
+<div class="info">For many eduroam setups, identity can be the same as username. Some schools use an anonymous outer identity here.</div>
+<label>Enterprise Username</label>
+<input name="eap_username" placeholder="Required for WPA2 Enterprise" value=")rawliteral";
+    html += htmlEscape(state.enterpriseUsername);
+    html += R"rawliteral(">
+<label>Enterprise Password</label>
+<input name="eap_password" type="password" placeholder="Leave blank to keep current enterprise password">
+<div class="info">Current enterprise password is )rawliteral";
+    html += state.hasEnterprisePassword ? "saved." : "not saved yet.";
+    html += R"rawliteral( Only used for WPA2 Enterprise.</div>
 <label>OpenAI API Key</label>
 <input name="apikey" placeholder="Leave blank to keep current key">
 <div class="info">Current key is )rawliteral";
@@ -124,13 +171,13 @@ button:hover{background:#00b894}
 <label>Camera Quality</label>
 <select name="cam_profile">
 <option value="0")rawliteral";
-    html += selectedAttr(state.cameraProfile, CAM_PROFILE_LOW);
+    html += selectedCameraAttr(state.cameraProfile, CAM_PROFILE_LOW);
     html += R"rawliteral(>Fast (VGA)</option>
 <option value="1")rawliteral";
-    html += selectedAttr(state.cameraProfile, CAM_PROFILE_BALANCED);
+    html += selectedCameraAttr(state.cameraProfile, CAM_PROFILE_BALANCED);
     html += R"rawliteral(>Balanced (SXGA)</option>
 <option value="2")rawliteral";
-    html += selectedAttr(state.cameraProfile, CAM_PROFILE_HIGH);
+    html += selectedCameraAttr(state.cameraProfile, CAM_PROFILE_HIGH);
     html += R"rawliteral(>Sharp (UXGA)</option>
 </select>
 <div class="info">Higher quality helps image reading but makes uploads slower and less tolerant of weak WiFi.</div>

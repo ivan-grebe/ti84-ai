@@ -4,6 +4,7 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <Preferences.h>
+#include "esp_wpa2.h"
 #include "config.h"
 #include "camera.h"
 #include "web_ui.h"
@@ -13,6 +14,10 @@ namespace WifiManager {
 static Preferences prefs;
 static String savedSSID;
 static String savedPass;
+static uint8_t savedWifiAuthMode = WIFI_AUTH_MODE_DEFAULT;
+static String savedEnterpriseIdentity;
+static String savedEnterpriseUsername;
+static String savedEnterprisePassword;
 static String savedAPIKey;
 static bool savedDebugApEnabled = DEFAULT_DEBUG_AP_ENABLED;
 static uint8_t savedCameraProfile = CAM_PROFILE_DEFAULT;
@@ -27,11 +32,19 @@ void startDebugAccessPoint();
 
 void cacheSettings(const String &ssid,
                    const String &pass,
+                   uint8_t wifiAuthMode,
+                   const String &enterpriseIdentity,
+                   const String &enterpriseUsername,
+                   const String &enterprisePassword,
                    const String &apiKey,
                    bool debugApEnabled,
                    uint8_t cameraProfile) {
     savedSSID = ssid;
     savedPass = pass;
+    savedWifiAuthMode = normalizeWifiAuthModeValue(wifiAuthMode);
+    savedEnterpriseIdentity = enterpriseIdentity;
+    savedEnterpriseUsername = enterpriseUsername;
+    savedEnterprisePassword = enterprisePassword;
     savedAPIKey = apiKey;
     savedDebugApEnabled = debugApEnabled;
     savedCameraProfile = normalizeCameraProfileValue(cameraProfile);
@@ -50,6 +63,10 @@ void loadCredentials() {
     prefs.begin(NVS_NAMESPACE, true);
     cacheSettings(prefs.getString(NVS_KEY_SSID, ""),
                   prefs.getString(NVS_KEY_PASS, ""),
+                  prefs.getUChar(NVS_KEY_WIFIMODE, WIFI_AUTH_MODE_DEFAULT),
+                  prefs.getString(NVS_KEY_EAPIDENT, ""),
+                  prefs.getString(NVS_KEY_EAPUSER, ""),
+                  prefs.getString(NVS_KEY_EAPPASS, ""),
                   prefs.getString(NVS_KEY_APIKEY, ""),
                   prefs.getBool(NVS_KEY_DEBUGAP, DEFAULT_DEBUG_AP_ENABLED),
                   prefs.getUChar(NVS_KEY_CAMPROF, CAM_PROFILE_DEFAULT));
@@ -58,11 +75,21 @@ void loadCredentials() {
 
 void saveSettings(const String &ssid,
                   const String &passInput,
+                  uint8_t wifiAuthMode,
+                  const String &enterpriseIdentityInput,
+                  const String &enterpriseUsernameInput,
+                  const String &enterprisePasswordInput,
                   const String &apiKeyInput,
                   bool debugApEnabled,
                   uint8_t cameraProfile) {
+    const uint8_t effectiveWifiAuthMode = normalizeWifiAuthModeValue(wifiAuthMode);
     const String effectivePass =
         (passInput.length() == 0 && ssid == savedSSID) ? savedPass : passInput;
+    const String effectiveEnterprisePassword =
+        (enterprisePasswordInput.length() == 0 && ssid == savedSSID &&
+         effectiveWifiAuthMode == savedWifiAuthMode)
+            ? savedEnterprisePassword
+            : enterprisePasswordInput;
     const String effectiveApiKey =
         (apiKeyInput.length() > 0) ? apiKeyInput : savedAPIKey;
     const uint8_t effectiveCameraProfile = normalizeCameraProfileValue(cameraProfile);
@@ -70,6 +97,10 @@ void saveSettings(const String &ssid,
     prefs.begin(NVS_NAMESPACE, false);
     prefs.putString(NVS_KEY_SSID, ssid);
     prefs.putString(NVS_KEY_PASS, effectivePass);
+    prefs.putUChar(NVS_KEY_WIFIMODE, effectiveWifiAuthMode);
+    prefs.putString(NVS_KEY_EAPIDENT, enterpriseIdentityInput);
+    prefs.putString(NVS_KEY_EAPUSER, enterpriseUsernameInput);
+    prefs.putString(NVS_KEY_EAPPASS, effectiveEnterprisePassword);
     prefs.putString(NVS_KEY_APIKEY, effectiveApiKey);
     prefs.putBool(NVS_KEY_DEBUGAP, debugApEnabled);
     prefs.putUChar(NVS_KEY_CAMPROF, effectiveCameraProfile);
@@ -77,15 +108,40 @@ void saveSettings(const String &ssid,
 
     cacheSettings(ssid,
                   effectivePass,
+                  effectiveWifiAuthMode,
+                  enterpriseIdentityInput,
+                  enterpriseUsernameInput,
+                  effectiveEnterprisePassword,
                   effectiveApiKey,
                   debugApEnabled,
                   effectiveCameraProfile);
 }
 
 String getAPIKey() { return savedAPIKey; }
-bool hasCredentials() { return savedSSID.length() > 0 && savedAPIKey.length() > 0; }
+bool hasCredentials() {
+    if (savedSSID.length() == 0 || savedAPIKey.length() == 0) {
+        return false;
+    }
+    if (normalizeWifiAuthModeValue(savedWifiAuthMode) == WIFI_AUTH_MODE_ENTERPRISE_PEAP) {
+        return savedEnterpriseUsername.length() > 0 && savedEnterprisePassword.length() > 0;
+    }
+    return true;
+}
 bool isDebugApEnabled() { return savedDebugApEnabled; }
 uint8_t cameraQualityProfile() { return savedCameraProfile; }
+bool isEnterpriseMode() {
+    return normalizeWifiAuthModeValue(savedWifiAuthMode) == WIFI_AUTH_MODE_ENTERPRISE_PEAP;
+}
+
+void clearEnterpriseConfig() {
+    esp_wifi_sta_wpa2_ent_disable();
+    esp_wifi_sta_wpa2_ent_clear_identity();
+    esp_wifi_sta_wpa2_ent_clear_username();
+    esp_wifi_sta_wpa2_ent_clear_password();
+    esp_wifi_sta_wpa2_ent_clear_new_password();
+    esp_wifi_sta_wpa2_ent_clear_ca_cert();
+    esp_wifi_sta_wpa2_ent_clear_cert_key();
+}
 
 void stopConfigPortal() {
     if (!portalActive) return;
@@ -101,10 +157,38 @@ bool connect(unsigned long timeoutMs = 15000) {
     Serial.printf("Connecting to WiFi: %s\n", savedSSID.c_str());
     stopConfigPortal();
     debugApStarted = false;
+    WiFi.disconnect(true);
+    delay(100);
     WiFi.mode(WIFI_STA);
     WiFi.setSleep(false);
     WiFi.setAutoReconnect(true);
-    WiFi.begin(savedSSID.c_str(), savedPass.c_str());
+    clearEnterpriseConfig();
+
+    if (isEnterpriseMode()) {
+        if (savedEnterpriseUsername.length() == 0 || savedEnterprisePassword.length() == 0) {
+            Serial.println("Enterprise WiFi credentials missing");
+            return false;
+        }
+
+        const String identity = savedEnterpriseIdentity.length() > 0
+                                    ? savedEnterpriseIdentity
+                                    : savedEnterpriseUsername;
+        Serial.printf("Using WPA2 Enterprise (PEAP) identity=%s username=%s\n",
+                      identity.c_str(),
+                      savedEnterpriseUsername.c_str());
+        WiFi.begin(savedSSID.c_str(),
+                   WPA2_AUTH_PEAP,
+                   identity.c_str(),
+                   savedEnterpriseUsername.c_str(),
+                   savedEnterprisePassword.c_str());
+    } else {
+        if (savedPass.length() > 0) {
+            WiFi.begin(savedSSID.c_str(), savedPass.c_str());
+        } else {
+            Serial.println("Connecting to open network");
+            WiFi.begin(savedSSID.c_str());
+        }
+    }
 
     unsigned long start = millis();
     while (WiFi.status() != WL_CONNECTED && millis() - start < timeoutMs) {
@@ -136,6 +220,7 @@ void disconnect() {
     stopConfigPortal();
     debugApStarted = false;
     WiFi.disconnect(true);
+    clearEnterpriseConfig();
     WiFi.mode(WIFI_OFF);
     Serial.println("WiFi disconnected");
 }
@@ -235,25 +320,55 @@ void startConfigPortal() {
         state.hasApiKey = savedAPIKey.length() > 0;
         state.debugApEnabled = savedDebugApEnabled;
         state.cameraProfile = savedCameraProfile;
+        state.wifiAuthMode = savedWifiAuthMode;
+        state.enterpriseIdentity = savedEnterpriseIdentity;
+        state.enterpriseUsername = savedEnterpriseUsername;
+        state.hasEnterprisePassword = savedEnterprisePassword.length() > 0;
         configServer.send(200, "text/html", WebUi::renderConfigHtml(state));
     });
 
     configServer.on("/save", HTTP_POST, []() {
         const String ssid = configServer.arg("ssid");
         const String pass = configServer.arg("pass");
+        const uint8_t wifiAuthMode =
+            normalizeWifiAuthModeValue(
+                static_cast<uint8_t>(configServer.arg("wifi_mode").toInt()));
+        const String enterpriseIdentity = configServer.arg("eap_identity");
+        const String enterpriseUsername = configServer.arg("eap_username");
+        const String enterprisePassword = configServer.arg("eap_password");
         const String apikey = configServer.arg("apikey");
         const bool debugApEnabled = configServer.hasArg("debugap");
         const uint8_t cameraProfile =
             normalizeCameraProfileValue(
                 static_cast<uint8_t>(configServer.arg("cam_profile").toInt()));
         const String effectiveApiKey = apikey.length() > 0 ? apikey : savedAPIKey;
+        const String effectiveEnterprisePassword =
+            (enterprisePassword.length() > 0 ||
+             !(wifiAuthMode == savedWifiAuthMode && ssid == savedSSID))
+                ? enterprisePassword
+                : savedEnterprisePassword;
 
         if (ssid.length() == 0 || effectiveApiKey.length() == 0) {
             configServer.send(400, "text/plain", "WiFi SSID and API key are required");
             return;
         }
+        if (wifiAuthMode == WIFI_AUTH_MODE_ENTERPRISE_PEAP &&
+            (enterpriseUsername.length() == 0 || effectiveEnterprisePassword.length() == 0)) {
+            configServer.send(400,
+                              "text/plain",
+                              "Enterprise username and password are required");
+            return;
+        }
 
-        saveSettings(ssid, pass, apikey, debugApEnabled, cameraProfile);
+        saveSettings(ssid,
+                     pass,
+                     wifiAuthMode,
+                     enterpriseIdentity,
+                     enterpriseUsername,
+                     enterprisePassword,
+                     apikey,
+                     debugApEnabled,
+                     cameraProfile);
         configServer.send(200, "text/html", WebUi::SAVED_HTML);
         delay(2000);
         ESP.restart();

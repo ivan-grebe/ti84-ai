@@ -40,10 +40,18 @@
 #define NVS_NAMESPACE  "ti84cfg"
 #define NVS_KEY_SSID   "wifi_ssid"
 #define NVS_KEY_PASS   "wifi_pass"
+#define NVS_KEY_WIFIMODE "wifi_mode"
+#define NVS_KEY_EAPIDENT "eap_ident"
+#define NVS_KEY_EAPUSER "eap_user"
+#define NVS_KEY_EAPPASS "eap_pass"
 #define NVS_KEY_APIKEY "api_key"
 #define NVS_KEY_DEBUGAP "debug_ap"
 #define NVS_KEY_CAMPROF "cam_prof"
 #define DEFAULT_DEBUG_AP_ENABLED true
+
+#define WIFI_AUTH_MODE_PERSONAL 0
+#define WIFI_AUTH_MODE_ENTERPRISE_PEAP 1
+#define WIFI_AUTH_MODE_DEFAULT WIFI_AUTH_MODE_PERSONAL
 
 static inline uint8_t normalizeCameraProfileValue(uint8_t profile) {
     switch (profile) {
@@ -53,6 +61,16 @@ static inline uint8_t normalizeCameraProfileValue(uint8_t profile) {
             return profile;
         default:
             return CAM_PROFILE_DEFAULT;
+    }
+}
+
+static inline uint8_t normalizeWifiAuthModeValue(uint8_t mode) {
+    switch (mode) {
+        case WIFI_AUTH_MODE_PERSONAL:
+        case WIFI_AUTH_MODE_ENTERPRISE_PEAP:
+            return mode;
+        default:
+            return WIFI_AUTH_MODE_DEFAULT;
     }
 }
 
