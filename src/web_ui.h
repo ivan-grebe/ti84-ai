@@ -15,6 +15,7 @@ struct PortalState {
     String enterpriseIdentity;
     String enterpriseUsername;
     bool hasEnterprisePassword = false;
+    bool photoRecapEnabled = DEFAULT_PHOTO_RECAP_ENABLED;
 };
 
 const char *cameraProfileLabel(uint8_t profile) {
@@ -123,6 +124,9 @@ button:hover{background:#00b894}
 <div>Camera preset: )rawliteral";
     html += cameraProfileLabel(state.cameraProfile);
     html += R"rawliteral(</div>
+<div>Photo recap: )rawliteral";
+    html += state.photoRecapEnabled ? "enabled" : "disabled";
+    html += R"rawliteral(</div>
 </div>
 <form method="POST" action="/save">
 <label>WiFi Network Name</label>
@@ -168,6 +172,13 @@ button:hover{background:#00b894}
 <label for="debugap" style="margin:0">Enable TI84CAM hotspot</label>
 </div>
 <div class="info">When enabled, the camera debug page is also exposed over the TI84CAM WiFi hotspot after CONNECT.</div>
+<div class="toggle">
+<input id="photo_recap" name="photo_recap" type="checkbox")rawliteral";
+    html += checkedAttr(state.photoRecapEnabled);
+    html += R"rawliteral(>
+<label for="photo_recap" style="margin:0">Repeat image text before answer</label>
+</div>
+<div class="info">When enabled, photo answers first restate the readable problem text in plain words, then solve it.</div>
 <label>Camera Quality</label>
 <select name="cam_profile">
 <option value="0")rawliteral";

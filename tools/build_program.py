@@ -207,7 +207,7 @@ def generate_header(tokens, program_name="TIAI", output_path="include/program_da
 
 TIBASIC_SOURCE = r"""
 ClrHome
-Disp "  TI-84 AI"
+Disp "    TI-84 AI"
 Disp ""
 69420->P
 Send({P})
@@ -215,7 +215,7 @@ Send({P})
 ""->Str1
 Lbl M
 ClrHome
-Disp "  TI-84 AI"
+Disp "    TI-84 AI"
 Disp ""
 Disp "1:SEND MESSAGE"
 Disp "2:TAKE PHOTO"
@@ -289,7 +289,12 @@ If Str0="ZZWAITZZ"
 Goto W
 If Str0!="READY"
 Then
+If X=1
+Then
+3->O
+Else
 1->O
+End
 Goto R
 End
 Z+1->Z
@@ -380,13 +385,19 @@ Goto C
 Lbl R
 ClrHome
 Str0+"                                                "->Str2
-Disp sub(Str2,1,16)
-Disp sub(Str2,17,16)
-Disp sub(Str2,33,16)
-Disp ""
-Disp "UP/DN: SCROLL"
-Disp "ALPHA: REPLY"
-Disp "CLEAR: BACK"
+Output(1,1,sub(Str2,1,16))
+Output(2,1,sub(Str2,17,16))
+Output(3,1,sub(Str2,33,16))
+Output(4,1,sub(Str2,49,16))
+Output(5,1,sub(Str2,65,16))
+Output(6,1,"                ")
+Output(7,1,"UP/DN: SCROLL")
+If O=2
+Then
+Output(8,1,"CLR:BACK")
+Else
+Output(8,1,"A:REPLY CLR:BACK")
+End
 0->K
 Repeat K
 getKey->K
@@ -425,6 +436,8 @@ If K=45
 Goto B
 If K=101
 Goto B
+If O=2
+Goto R
 If K
 Then
 1->X
@@ -433,6 +446,20 @@ Goto T
 End
 Goto R
 Lbl B
+If O=3
+Then
+1->O
+"ZZWAITZZ"->Str0
+Send({P})
+Send({9})
+Lbl Q
+Get(Str0)
+If Str0="ZZWAITZZ"
+Goto Q
+If Str0="READY"
+Goto Q
+Goto R
+End
 If O=1
 Then
 0->X
@@ -517,14 +544,14 @@ Goto S
 Goto U
 Lbl G
 ClrHome
-Disp "CONNECT PHONE TO"
-Disp "WIFI: TI84AI"
-Disp "PASS: 12345678"
-Disp ""
-Disp "OPEN BROWSER:"
-Disp "192.168.4.1"
-Disp ""
-Disp "CLEAR: BACK"
+Output(1,1,"CONNECT PHONE TO")
+Output(2,1,"WIFI: TI84AI")
+Output(3,1,"PASS: 12345678")
+Output(4,1,"                ")
+Output(5,1,"OPEN BROWSER:")
+Output(6,1,"192.168.4.1")
+Output(7,1,"                ")
+Output(8,1,"CLEAR: BACK")
 0->K
 Repeat K
 getKey->K

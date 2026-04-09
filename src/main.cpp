@@ -14,7 +14,7 @@ namespace {
 constexpr int kMaxDataLen = 4096;
 constexpr int kHeaderBufferLen = 16;
 constexpr int kMaxResponseLines = 72;
-constexpr int kResponseWindowLines = 3;
+constexpr int kResponseWindowLines = 5;
 constexpr unsigned long kHeartbeatIntervalMs = 10000;
 constexpr unsigned long kProgramSendDelayMs = 300;
 
@@ -33,6 +33,7 @@ enum CommandId : long {
     kCommandScrollDown = 6,
     kCommandScrollUp = 7,
     kCommandReply = 8,
+    kCommandShowPreviousResponse = 9,
 };
 
 CBL2 cbl;
@@ -51,6 +52,11 @@ unsigned long sendProgramAt = 0;
 int currentTopLine = 0;
 int totalResponseLines = 0;
 String responseLines[kMaxResponseLines];
+int previousTopLine = 0;
+int previousTotalResponseLines = 0;
+String previousResponseLines[kMaxResponseLines];
+bool previousResponseAvailable = false;
+String previousConversationResponseId = "";
 String queuedResponse = "";
 bool responseReady = false;
 
@@ -78,6 +84,16 @@ const String &blankResponseWindow() {
     return window;
 }
 
+String padDisplayLine(String value) {
+    if (value.length() > SCREEN_WIDTH) {
+        value = value.substring(0, SCREEN_WIDTH);
+    }
+    while (value.length() < SCREEN_WIDTH) {
+        value += ' ';
+    }
+    return value;
+}
+
 void clearQueuedResponse() {
     queuedResponse = "";
     responseReady = false;
@@ -91,6 +107,24 @@ void resetUnlockedSessionState() {
     resetPendingTextCommand();
     clearQueuedResponse();
     connectFlag = false;
+}
+
+void swapDisplayLineArrays(String *lhs, String *rhs) {
+    for (int i = 0; i < kMaxResponseLines; i++) {
+        String temp = lhs[i];
+        lhs[i] = rhs[i];
+        rhs[i] = temp;
+    }
+}
+
+void saveCurrentResponseAsPrevious() {
+    previousTopLine = currentTopLine;
+    previousTotalResponseLines = totalResponseLines;
+    for (int i = 0; i < kMaxResponseLines; i++) {
+        previousResponseLines[i] = responseLines[i];
+    }
+    previousConversationResponseId = OpenAI::conversationResponseId();
+    previousResponseAvailable = previousTotalResponseLines > 0;
 }
 
 void acceptUnlock() {
@@ -245,14 +279,7 @@ void addResponseLine(const String &rawLine) {
         return;
     }
 
-    String padded = rawLine;
-    if (padded.length() > SCREEN_WIDTH) {
-        padded = padded.substring(0, SCREEN_WIDTH);
-    }
-    while (padded.length() < SCREEN_WIDTH) {
-        padded += ' ';
-    }
-    responseLines[totalResponseLines++] = padded;
+    responseLines[totalResponseLines++] = padDisplayLine(rawLine);
 }
 
 void wrapResponseParagraph(String paragraph) {
@@ -374,6 +401,24 @@ void queueCurrentWindow() {
     queueResponse(getPageWindow(currentTopLine));
 }
 
+void restorePreviousResponse() {
+    if (!previousResponseAvailable) {
+        queueError("NO PREVIOUS");
+        return;
+    }
+
+    std::swap(currentTopLine, previousTopLine);
+    std::swap(totalResponseLines, previousTotalResponseLines);
+    swapDisplayLineArrays(responseLines, previousResponseLines);
+
+    const String currentConversationResponseId = OpenAI::conversationResponseId();
+    OpenAI::setConversationResponseId(previousConversationResponseId);
+    previousConversationResponseId = currentConversationResponseId;
+    previousResponseAvailable = previousTotalResponseLines > 0;
+
+    queueCurrentWindow();
+}
+
 void armPendingTextCommand(PendingTextCommand command) {
     pendingTextCommand = command;
     clearQueuedResponse();
@@ -453,6 +498,9 @@ void handleTextPrompt(const String &text, bool isReply) {
     Serial.printf("%s received (%u chars)\n",
                   isReply ? "Reply" : "Prompt",
                   text.length());
+    if (isReply) {
+        saveCurrentResponseAsPrevious();
+    }
     setResponse(isReply ? OpenAI::reply(text) : OpenAI::ask(text));
     queueCurrentWindow();
 }
@@ -482,6 +530,9 @@ void dispatchUnlockedCommand(long value) {
             break;
         case kCommandReply:
             armPendingTextCommand(PendingTextCommand::Reply);
+            break;
+        case kCommandShowPreviousResponse:
+            restorePreviousResponse();
             break;
         default:
             queueError("UNKNOWN CMD");

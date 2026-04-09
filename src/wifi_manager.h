@@ -21,6 +21,7 @@ static String savedEnterprisePassword;
 static String savedAPIKey;
 static bool savedDebugApEnabled = DEFAULT_DEBUG_AP_ENABLED;
 static uint8_t savedCameraProfile = CAM_PROFILE_DEFAULT;
+static bool savedPhotoRecapEnabled = DEFAULT_PHOTO_RECAP_ENABLED;
 static WebServer configServer(80);
 static WebServer debugServer(81);
 static bool portalActive = false;
@@ -38,7 +39,8 @@ void cacheSettings(const String &ssid,
                    const String &enterprisePassword,
                    const String &apiKey,
                    bool debugApEnabled,
-                   uint8_t cameraProfile) {
+                   uint8_t cameraProfile,
+                   bool photoRecapEnabled) {
     savedSSID = ssid;
     savedPass = pass;
     savedWifiAuthMode = normalizeWifiAuthModeValue(wifiAuthMode);
@@ -48,6 +50,7 @@ void cacheSettings(const String &ssid,
     savedAPIKey = apiKey;
     savedDebugApEnabled = debugApEnabled;
     savedCameraProfile = normalizeCameraProfileValue(cameraProfile);
+    savedPhotoRecapEnabled = photoRecapEnabled;
 }
 
 void sendJpegResponse(WebServer &server, const uint8_t *jpegData, size_t jpegLen) {
@@ -69,7 +72,8 @@ void loadCredentials() {
                   prefs.getString(NVS_KEY_EAPPASS, ""),
                   prefs.getString(NVS_KEY_APIKEY, ""),
                   prefs.getBool(NVS_KEY_DEBUGAP, DEFAULT_DEBUG_AP_ENABLED),
-                  prefs.getUChar(NVS_KEY_CAMPROF, CAM_PROFILE_DEFAULT));
+                  prefs.getUChar(NVS_KEY_CAMPROF, CAM_PROFILE_DEFAULT),
+                  prefs.getBool(NVS_KEY_PHOTORECAP, DEFAULT_PHOTO_RECAP_ENABLED));
     prefs.end();
 }
 
@@ -81,7 +85,8 @@ void saveSettings(const String &ssid,
                   const String &enterprisePasswordInput,
                   const String &apiKeyInput,
                   bool debugApEnabled,
-                  uint8_t cameraProfile) {
+                  uint8_t cameraProfile,
+                  bool photoRecapEnabled) {
     const uint8_t effectiveWifiAuthMode = normalizeWifiAuthModeValue(wifiAuthMode);
     const String effectivePass =
         (passInput.length() == 0 && ssid == savedSSID) ? savedPass : passInput;
@@ -104,6 +109,7 @@ void saveSettings(const String &ssid,
     prefs.putString(NVS_KEY_APIKEY, effectiveApiKey);
     prefs.putBool(NVS_KEY_DEBUGAP, debugApEnabled);
     prefs.putUChar(NVS_KEY_CAMPROF, effectiveCameraProfile);
+    prefs.putBool(NVS_KEY_PHOTORECAP, photoRecapEnabled);
     prefs.end();
 
     cacheSettings(ssid,
@@ -114,7 +120,8 @@ void saveSettings(const String &ssid,
                   effectiveEnterprisePassword,
                   effectiveApiKey,
                   debugApEnabled,
-                  effectiveCameraProfile);
+                  effectiveCameraProfile,
+                  photoRecapEnabled);
 }
 
 String getAPIKey() { return savedAPIKey; }
@@ -142,6 +149,7 @@ void clearEnterpriseConfig() {
     esp_wifi_sta_wpa2_ent_clear_ca_cert();
     esp_wifi_sta_wpa2_ent_clear_cert_key();
 }
+bool photoRecapEnabled() { return savedPhotoRecapEnabled; }
 
 void stopConfigPortal() {
     if (!portalActive) return;
@@ -324,6 +332,7 @@ void startConfigPortal() {
         state.enterpriseIdentity = savedEnterpriseIdentity;
         state.enterpriseUsername = savedEnterpriseUsername;
         state.hasEnterprisePassword = savedEnterprisePassword.length() > 0;
+        state.photoRecapEnabled = savedPhotoRecapEnabled;
         configServer.send(200, "text/html", WebUi::renderConfigHtml(state));
     });
 
@@ -338,6 +347,7 @@ void startConfigPortal() {
         const String enterprisePassword = configServer.arg("eap_password");
         const String apikey = configServer.arg("apikey");
         const bool debugApEnabled = configServer.hasArg("debugap");
+        const bool photoRecapEnabled = configServer.hasArg("photo_recap");
         const uint8_t cameraProfile =
             normalizeCameraProfileValue(
                 static_cast<uint8_t>(configServer.arg("cam_profile").toInt()));
@@ -368,7 +378,8 @@ void startConfigPortal() {
                      enterprisePassword,
                      apikey,
                      debugApEnabled,
-                     cameraProfile);
+                     cameraProfile,
+                     photoRecapEnabled);
         configServer.send(200, "text/html", WebUi::SAVED_HTML);
         delay(2000);
         ESP.restart();
