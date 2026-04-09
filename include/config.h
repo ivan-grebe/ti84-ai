@@ -43,7 +43,9 @@
 #define NVS_KEY_APIKEY "api_key"
 #define NVS_KEY_DEBUGAP "debug_ap"
 #define NVS_KEY_CAMPROF "cam_prof"
+#define NVS_KEY_PHOTORECAP "photo_recap"
 #define DEFAULT_DEBUG_AP_ENABLED true
+#define DEFAULT_PHOTO_RECAP_ENABLED false
 
 static inline uint8_t normalizeCameraProfileValue(uint8_t profile) {
     switch (profile) {
@@ -98,3 +100,8 @@ static inline uint8_t normalizeCameraProfileValue(uint8_t profile) {
     "Then give short work. " \
     "Plaintext only. No markdown, bullets, code blocks, LaTeX, or special formatting. " \
     "ASCII math only. End with END OF MESSAGE."
+
+#define CAMERA_RECAP_SUFFIX \
+    " Before answering, first restate the visible problem or prompt in plain words. " \
+    "If the image contains symbols, operators, or notation, rewrite them as plain words or simple ASCII math. " \
+    "Do this only for what you can actually read from the image."
