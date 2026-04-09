@@ -6,11 +6,17 @@ The calculator talks to the ESP32 over the 2.5mm TI link port. The ESP32 handles
 
 ## Features
 
-- Send typed prompts to a vision-capable model from the calculator
+- Send typed prompts to a vision-capable OpenAI model from the calculator
+- Reply to continue a conversation with context from previous messages
 - Take a photo and have it solved automatically
-- Store WiFi credentials and API key in ESP32 flash
-- Camera debug page served over WiFi
-- One-command program install via `Send({1})`
+- Scroll through long responses line by line
+- Web config portal for WiFi, API key, camera quality, and debug AP settings
+- Three camera quality profiles: Fast (VGA), Balanced (SXGA), Sharp (UXGA)
+- Camera debug hotspot (TI84CAM) with live preview page on port 81
+- Toggle the debug AP on or off from the config portal
+- Settings stored in ESP32 flash (NVS) and persist across reboots
+- One-command program install via `Send({1})` with automatic retry
+- Auto-reconnect and DNS recovery for flaky WiFi
 
 ## Hardware
 
@@ -42,8 +48,9 @@ include/
 src/
   main.cpp            - TI link handling and command dispatch
   camera.h            - camera capture and preview helpers
-  wifi_manager.h      - WiFi, setup portal, and debug page
-  openai_client.h     - OpenAI request handling
+  wifi_manager.h      - WiFi, config portal, debug AP, and camera debug server
+  openai_client.h     - OpenAI Responses API client with retry and DNS recovery
+  web_ui.h            - config portal HTML rendering
 tools/
   build_program.py    - TI-BASIC source and tokenizer
   capture_serial.ps1  - serial log capture (timed, auto-detects COM port)
@@ -100,15 +107,22 @@ Once the ESP32 is flashed, set up the calculator:
 
 2. Run `prgmTIAI`.
 3. Go to **SETTINGS > CONFIGURE**. The calculator will display an AP name.
-4. On your phone or computer, connect to that AP.
-5. In the portal page that opens, enter your:
-   - WiFi network name (SSID)
-   - WiFi password
+4. On your phone or computer, connect to the **TI84AI** network (password: `12345678`).
+5. Open the config page that appears and enter:
+   - WiFi network name (SSID) and password
    - OpenAI API key
-6. Back on the calculator, go to **SETTINGS > CONNECT**.
+   - Camera quality profile (optional, defaults to Balanced)
+   - Whether to enable the TI84CAM debug hotspot (optional, on by default)
+6. Save. The ESP32 will reboot with the new settings.
+7. Back on the calculator, go to **SETTINGS > CONNECT**.
 
-You're ready. Use **SEND MESSAGE** to type a prompt or **TAKE PHOTO** to snap and solve.
-When finished using, pop out a battery to completely kill power to the ESP32. I recommend a 1.5V or 1.2V battery.
+You're ready. Use **SEND MESSAGE** to type a prompt, **REPLY** to follow up, or **TAKE PHOTO** to snap and solve. Scroll through long responses with the up/down keys.
+
+When finished, pop out a battery to completely kill power to the ESP32. A 1.5V or 1.2V battery works.
+
+## Camera Debug Hotspot
+
+When enabled and connected to WiFi, the ESP32 also starts a secondary AP called **TI84CAM** (password: `12345678`). Connect to it and visit `http://192.168.8.1:81/` to see a live camera preview. The debug AP can be toggled on or off from the config portal.
 
 ## Updating the Embedded TI-BASIC Program
 
@@ -123,7 +137,9 @@ Then on the calculator, run `Send({1})` again to install the new version of `TIA
 
 ## Notes
 
-- Camera quality and prompt behavior are configured in `include/config.h`
+- Camera quality, model, and prompt behavior are configured in `include/config.h`
+- The OpenAI client uses the Responses API (`/v1/responses`) with conversation state via `previous_response_id`
+- Vision requests are built manually (not via ArduinoJson) to avoid duplicating large base64 strings in RAM
 - Serial logs are not committed because they may contain local network details
 
 ## Known Limits
@@ -131,3 +147,4 @@ Then on the calculator, run `Send({1})` again to install the new version of `TIA
 - Built for the TI-84 Plus, not the TI-84 Plus CE
 - Large image uploads can stress the ESP32 network stack
 - The silent install path may log `No ACK after EOT` even on a successful install
+- Vision requests do not carry conversation history (each photo is standalone)
