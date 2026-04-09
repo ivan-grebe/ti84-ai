@@ -9,13 +9,48 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Append-LogEntry {
+    param(
+        [string]$Path,
+        [string]$Text
+    )
+
+    for ($attempt = 0; $attempt -lt 6; $attempt++) {
+        try {
+            $fileStream = [System.IO.File]::Open($Path,
+                                                 [System.IO.FileMode]::Append,
+                                                 [System.IO.FileAccess]::Write,
+                                                 [System.IO.FileShare]::ReadWrite)
+            try {
+                $writer = New-Object System.IO.StreamWriter($fileStream)
+                $writer.WriteLine($Text)
+                $writer.Flush()
+            } finally {
+                if ($writer) { $writer.Dispose() }
+                $fileStream.Dispose()
+            }
+            return
+        } catch {
+            if ($attempt -eq 5) {
+                throw
+            }
+            Start-Sleep -Milliseconds 100
+        }
+    }
+}
+
 function Write-LogLine {
     param(
         [string]$Message
     )
 
     $entry = "{0} {1}" -f (Get-Date -Format "HH:mm:ss.fff"), $Message
-    Add-Content -LiteralPath $LogPath -Value $entry
+    try {
+        Append-LogEntry -Path $LogPath -Text $entry
+    } catch {
+        Write-Output ("{0} [log write skipped: {1}]" -f $entry, $_.Exception.Message)
+        return
+    }
     Write-Output $entry
 }
 
@@ -64,8 +99,8 @@ if (-not (Test-Path -LiteralPath $LogPath)) {
 }
 
 $sessionStamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-Add-Content -LiteralPath $LogPath -Value ""
-Add-Content -LiteralPath $LogPath -Value ("===== {0} | port={1} baud={2} seconds={3} =====" -f $sessionStamp, $Port, $Baud, $Seconds)
+Append-LogEntry -Path $LogPath -Text ""
+Append-LogEntry -Path $LogPath -Text ("===== {0} | port={1} baud={2} seconds={3} =====" -f $sessionStamp, $Port, $Baud, $Seconds)
 
 $captured = 0
 $serial = $null
