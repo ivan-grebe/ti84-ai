@@ -207,7 +207,7 @@ def generate_header(tokens, program_name="TIAI", output_path="include/program_da
 
 TIBASIC_SOURCE = r"""
 ClrHome
-Disp "  TI-84 AI"
+Disp "    TI-84 AI"
 Disp ""
 69420->P
 Send({P})
@@ -215,7 +215,7 @@ Send({P})
 ""->Str1
 Lbl M
 ClrHome
-Disp "  TI-84 AI"
+Disp "    TI-84 AI"
 Disp ""
 Disp "1:SEND MESSAGE"
 Disp "2:TAKE PHOTO"
