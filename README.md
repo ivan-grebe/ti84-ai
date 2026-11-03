@@ -2,8 +2,6 @@
 
 Custom firmware for a modded TI-84 Plus with an internal Seeed Studio XIAO ESP32S3 Sense and OV5640 camera.
 
-The calculator talks to the ESP32 over the 2.5mm TI link port. The ESP32 handles WiFi, camera capture, and OpenAI requests. A small TI-BASIC program called `TIAI` runs on the calculator as the UI.
-
 ## Features
 
 - Send typed prompts to a vision-capable OpenAI model from the calculator
@@ -26,8 +24,6 @@ The calculator talks to the ESP32 over the 2.5mm TI link port. The ESP32 handles
 | Microcontroller | Seeed Studio XIAO ESP32S3 Sense |
 | Camera | OV5640 |
 | Connection | Internal wiring to calculator link port |
-
-This is a custom internal hardware mod, not a general-purpose accessory.
 
 ## Wiring
 
@@ -158,17 +154,3 @@ platformio run --target upload         # flash the updated firmware
 ```
 
 Then on the calculator, run `Send({1})` again to install the new version of `TIAI`.
-
-## Notes
-
-- Camera quality, model, and prompt behavior are configured in `include/config.h`
-- The OpenAI client uses the Responses API (`/v1/responses`) with conversation state via `previous_response_id`
-- Vision requests are built manually (not via ArduinoJson) to avoid duplicating large base64 strings in RAM
-- Serial logs are not committed because they may contain local network details
-
-## Known Limits
-
-- Built for the TI-84 Plus, not the TI-84 Plus CE
-- Large image uploads can stress the ESP32 network stack
-- The silent install path may log `No ACK after EOT` even on a successful install
-- Vision requests do not carry conversation history (each photo is standalone)
