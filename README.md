@@ -27,10 +27,25 @@ Custom firmware for a modded TI-84 Plus with an internal Seeed Studio XIAO ESP32
 
 ## Wiring
 
-| TI Link Pin | ESP32 Pin |
-|-------------|-----------|
-| Tip | D0 |
-| Ring | D1 |
+Follow the soldering in this video: [How To Install ChatGPT On Your Calculator (Full Tutorial)](https://www.youtube.com/watch?v=7V_rGwuT2pE). Its wiring diagram is [here](https://imgur.com/a/EiM788S).
+
+Three things are different from the video:
+
+1. **Use a XIAO ESP32S3 Sense, not the ESP32C3 he uses.** This firmware does not run on the C3. The S3 has the same pads in the same places, so solder it exactly the same way.
+2. **Skip his firmware section (3:34 to 4:51).** You don't need his paid firmware or the ESPHome web flasher. Flash this repo instead (see [Build and Flash](#build-and-flash)).
+3. **Use NiMH rechargeable AAA batteries (1.2V each).** The ESP32 runs straight off the calculator's batteries. Four fresh alkaline AAAs can put out over 6V, which is more than the S3's 5V pin is meant to take. Four NiMH cells give about 4.8V.
+
+| Wire in the video | ESP32 pin | Used by this firmware as |
+|-------------------|-----------|--------------------------|
+| Orange, to the link jack | D0 | Tip |
+| Blue, to the pad in the middle of the board | D1 | Not used (solder it anyway, it's harmless) |
+| Green, to the link jack | D2 | Ring |
+| Red, to battery + | VUSB (5V) | Power |
+| Black, to ground | GND | Ground |
+
+> **Not yet tested on hardware.** These pins are based on the video's diagram, not a confirmed build. If the calculator gives `ERR:LINK` when you run `Send({1})`, swap the two values in `include/config.h` (`PIN_TIP D2`, `PIN_RING D0`), reflash, and try again. Please open an issue saying which one worked.
+
+If you built yours with the older wiring (tip on D0, ring on D1), set `PIN_RING` to `D1` in `include/config.h` before flashing.
 
 See `include/config.h` and `include/camera_pins.h` for the full pin definitions.
 
@@ -138,7 +153,7 @@ Once the ESP32 is flashed, set up the calculator:
 
 You're ready. Use **SEND MESSAGE** to type a prompt, **REPLY** to follow up, or **TAKE PHOTO** to snap and solve. Scroll through long responses with the up/down keys.
 
-When finished, pop out a battery to completely kill power to the ESP32. A 1.5V or 1.2V battery works.
+When finished, pop out a battery to completely kill power to the ESP32. Use NiMH rechargeables (1.2V); see [Wiring](#wiring) for why.
 
 ## Camera Debug Hotspot
 
