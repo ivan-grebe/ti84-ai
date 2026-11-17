@@ -22,7 +22,7 @@ Custom firmware for a modded TI-84 Plus with an internal Seeed Studio XIAO ESP32
 |------|---------|
 | Calculator | TI-84 Plus (non-CE) |
 | Microcontroller | Seeed Studio XIAO ESP32S3 Sense |
-| Camera | OV5640 |
+| Camera | Comes with the S3 Sense (OV2640, OV3660, or OV5640) |
 | Connection | Internal wiring to calculator link port |
 
 ## Wiring
@@ -31,7 +31,7 @@ Follow the soldering in this video: [How To Install ChatGPT On Your Calculator (
 
 Three things are different from the video:
 
-1. **Use a XIAO ESP32S3 Sense, not the ESP32C3 he uses.** This firmware does not run on the C3. The S3 has the same pads in the same places, so solder it exactly the same way.
+1. **Use a XIAO ESP32S3 Sense, not the ESP32C3 he uses.** This firmware does not run on the C3. The S3 has the same pads in the same places, so solder it exactly the same way. Make sure you get the **Sense** version: the plain XIAO ESP32S3 has nowhere to plug in a camera.
 2. **Skip his firmware section (3:34 to 4:51).** You don't need his paid firmware or the ESPHome web flasher. Flash this repo instead (see [Build and Flash](#build-and-flash)).
 3. **Use NiMH rechargeable AAA batteries (1.2V each).** The ESP32 runs straight off the calculator's batteries. Four fresh alkaline AAAs can put out over 6V, which is more than the S3's 5V pin is meant to take. Four NiMH cells give about 4.8V.
 
@@ -46,6 +46,17 @@ Three things are different from the video:
 > **Not yet tested on hardware.** These pins are based on the video's diagram, not a confirmed build. If the calculator gives `ERR:LINK` when you run `Send({1})`, swap the two values in `include/config.h` (`PIN_TIP D2`, `PIN_RING D0`), reflash, and try again. Please open an issue saying which one worked.
 
 If you built yours with the older wiring (tip on D0, ring on D1), set `PIN_RING` to `D1` in `include/config.h` before flashing.
+
+### Camera placement
+
+The video doesn't use a camera, so this part is up to you. The camera is already part of the S3 Sense (it plugs into the board's own connector), so it needs no extra wiring. You just need to place it so it can see out of the case:
+
+- The S3 Sense is thicker than the C3 in the video because of the camera board. Find a spot where it fits without the back cover pressing on it.
+- Point the lens at the back cover and cut or drill a small hole there so it can see through.
+
+The camera is optional. If you skip it, everything else still works, and **TAKE PHOTO** just shows `ERR:CAMERA FAIL`.
+
+Depending on when it was made, the S3 Sense comes with an OV2640, OV3660, or OV5640 camera. All three should work, but the image settings were tuned on an OV5640, so photos from the others may look a little different.
 
 See `include/config.h` and `include/camera_pins.h` for the full pin definitions.
 
