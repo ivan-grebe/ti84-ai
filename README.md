@@ -51,7 +51,7 @@ If you built yours with the older wiring (tip on D0, ring on D1), set `PIN_RING`
 
 The video doesn't use a camera, so this part is up to you. The camera is already part of the S3 Sense (it plugs into the board's own connector), so it needs no extra wiring. You just need to place it so it can see out of the case:
 
-- The S3 Sense is thicker than the C3 in the video because of the camera board. Find a spot where it fits without the back cover pressing on it.
+- The S3 Sense is thicker than the C3 in the video because of the camera board. The TI-84 is pretty thick so there should be plenty of spots where it can still fit.
 - Point the lens at the back cover and cut or drill a small hole there so it can see through.
 
 The camera is optional. If you skip it, everything else still works, and **TAKE PHOTO** just shows `ERR:CAMERA FAIL`.
@@ -83,7 +83,7 @@ platformio.ini        - PlatformIO environment
 
 ## Development Setup
 
-You need three things installed before you can build:
+You need three things installed before you can build (or just point your AI agent of choice at this repo):
 
 1. **Python 3** -- https://www.python.org/downloads/
 2. **Git** -- https://git-scm.com/downloads
