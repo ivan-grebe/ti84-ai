@@ -2,6 +2,8 @@
 
 Custom firmware for a modded TI-84 Plus with an internal Seeed Studio XIAO ESP32S3 Sense and OV5640 camera.
 
+*Please take a look at the video-wiring branch for updated instructions!*
+
 ## Features
 
 - Send typed prompts to a vision-capable OpenAI model from the calculator
