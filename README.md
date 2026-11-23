@@ -2,7 +2,7 @@
 
 Custom firmware for a modded TI-84 Plus with an internal Seeed Studio XIAO ESP32S3 Sense and OV5640 camera.
 
-*Please take a look at the video-wiring branch for updated instructions!*
+*Please take a look at the [video-wiring](https://github.com/ivan-grebe/ti84-ai/tree/video-wiring) branch for updated instructions!*
 
 ## Features
 
