@@ -49,7 +49,12 @@ If you built yours with the older wiring (tip on D0, ring on D1), set `PIN_RING`
 
 ### Antenna
 
-The WiFi antenna comes loose in the box. Plug it into the small round connector at the bottom left of the XIAO's front side (hook one side in, then press the other side down until it clicks). Without it, WiFi barely works. Stick the antenna flat inside the back cover.
+The WiFi antenna is loose in the box. You must install it. Without the antenna, the WiFi signal is very weak.
+
+1. Find the small round connector on the front of the XIAO. It is at the bottom left.
+2. Put one side of the antenna connector into the connector on the XIAO.
+3. Push down on the other side until it clicks.
+4. Attach the antenna flat to the inside of the back cover.
 
 ### Camera placement
 
@@ -158,7 +163,7 @@ Once the ESP32 is flashed, set up the calculator:
 2. Run `prgmTIAI`.
 3. Go to **SETTINGS > CONFIGURE**. The calculator will display an AP name.
 4. On your phone or computer, connect to the **TI84AI** network (password: `12345678`).
-5. Open a browser and go to **http://192.168.4.1** (no page pops up on its own). If your phone says the network has no internet, choose to stay connected. Then enter:
+5. Open a browser and go to **http://192.168.4.1**. The page does not open automatically. If your phone shows "no internet", stay connected to the network. Enter these items:
    - WiFi network name (SSID) and password
    - OpenAI API key
    - Camera quality profile (optional, defaults to Balanced)
