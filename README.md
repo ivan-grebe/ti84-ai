@@ -7,11 +7,8 @@ Custom firmware for a modded TI-84 Plus with an internal Seeed Studio XIAO ESP32
 - Send typed prompts to a vision-capable OpenAI model from the calculator
 - Reply to continue a conversation with context from previous messages
 - Take a photo and have it solved automatically
-- Scroll through long responses line by line
 - Web config portal for WiFi, API key, camera quality, and debug AP settings
 - Three camera quality profiles: Fast (VGA), Balanced (SXGA), Sharp (UXGA)
-- Camera debug hotspot (TI84CAM) with live preview page on port 81
-- Toggle the debug AP on or off from the config portal
 - Settings stored in ESP32 flash (NVS) and persist across reboots
 - One-command program install via `Send({1})` with automatic retry
 - Auto-reconnect and DNS recovery for flaky WiFi
@@ -32,7 +29,7 @@ Follow the soldering in this video: [How To Install ChatGPT On Your Calculator (
 Three things are different from the video:
 
 1. **Use a XIAO ESP32S3 Sense, not the ESP32C3 he uses.** This firmware does not run on the C3. The S3 has the same pads in the same places, so solder it exactly the same way. Make sure you get the **Sense** version: the plain XIAO ESP32S3 has nowhere to plug in a camera.
-2. **Skip his firmware section (3:34 to 4:51).** You don't need his paid firmware or the ESPHome web flasher. Flash this repo instead (see [Build and Flash](#build-and-flash)).
+2. **Skip the firmware section (3:34 to 4:51).** Flash this repo instead (see [Build and Flash](#build-and-flash)).
 3. **Use NiMH rechargeable AAA batteries (1.2V each).** The ESP32 runs straight off the calculator's batteries. Four fresh alkaline AAAs can put out over 6V, which is more than the S3's 5V pin is meant to take. Four NiMH cells give about 4.8V.
 
 | Wire in the video | ESP32 pin | Used by this firmware as |
@@ -45,8 +42,6 @@ Three things are different from the video:
 
 > **Not yet tested on hardware.** These pins are based on the video's diagram, not a confirmed build. If the calculator gives `ERR:LINK` when you run `Send({1})`, swap the two values in `include/config.h` (`PIN_TIP D2`, `PIN_RING D0`), reflash, and try again. Please open an issue saying which one worked.
 
-If you built yours with the older wiring (tip on D0, ring on D1), set `PIN_RING` to `D1` in `include/config.h` before flashing.
-
 ### Antenna
 
 The WiFi antenna is loose in the box. You must install it. Without the antenna, the WiFi signal is very weak.
@@ -58,37 +53,11 @@ The WiFi antenna is loose in the box. You must install it. Without the antenna, 
 
 ### Camera placement
 
-The video doesn't use a camera, so this part is up to you. The camera is already part of the S3 Sense (it plugs into the board's own connector), so it needs no extra wiring. You just need to place it so it can see out of the case:
-
-- The S3 Sense is thicker than the C3 in the video because of the camera board. The TI-84 is pretty thick so there should be plenty of spots where it can still fit.
-- Point the lens at the back cover and cut or drill a small hole there so it can see through.
+The video doesn't use a camera, so this part is up to you. The camera is already part of the S3 Sense (it plugs into the board's own connector) so it doesn't need extra wiring. You just need to place it so it can see out of the case.
 
 The camera is optional. If you skip it, everything else still works, and **TAKE PHOTO** just shows `ERR:CAMERA FAIL`.
 
 Depending on when it was made, the S3 Sense comes with an OV2640, OV3660, or OV5640 camera. All three should work, but the image settings were tuned on an OV5640, so photos from the others may look a little different.
-
-See `include/config.h` and `include/camera_pins.h` for the full pin definitions.
-
-## Repo Layout
-
-```
-include/
-  config.h            - link pins, prompts, model, camera settings
-  camera_pins.h       - OV5640 pin mapping
-  program_data.h      - generated tokenized TI-BASIC program
-src/
-  main.cpp            - TI link handling and command dispatch
-  camera.h            - camera capture and preview helpers
-  wifi_manager.h      - WiFi, config portal, debug AP, and camera debug server
-  openai_client.h     - OpenAI Responses API client with retry and DNS recovery
-  web_ui.h            - config portal HTML rendering
-tools/
-  build_program.py    - TI-BASIC source and tokenizer
-  capture_serial.ps1  - serial log capture (timed, auto-detects COM port)
-  start_capture_background.ps1 - start serial capture in a background process
-  stop_capture_background.ps1  - stop the background capture process
-platformio.ini        - PlatformIO environment
-```
 
 ## Development Setup
 
@@ -166,14 +135,12 @@ Once the ESP32 is flashed, set up the calculator:
 5. Open a browser and go to **http://192.168.4.1**. The page does not open automatically. If your phone shows "no internet", stay connected to the network. Enter these items:
    - WiFi network name (SSID) and password
    - OpenAI API key
-   - Camera quality profile (optional, defaults to Balanced)
-   - Whether to enable the TI84CAM debug hotspot (optional, on by default)
 6. Save. The ESP32 will reboot with the new settings.
 7. Back on the calculator, go to **SETTINGS > CONNECT**.
 
 You're ready. Use **SEND MESSAGE** to type a prompt, **REPLY** to follow up, or **TAKE PHOTO** to snap and solve. Scroll through long responses with the up/down keys.
 
-When finished, pop out a battery to completely kill power to the ESP32. Use NiMH rechargeables (1.2V); see [Wiring](#wiring) for why.
+When finished, pop out a battery to completely kill power to the ESP32. Use NiMH rechargeables (1.2V).
 
 ## Camera Debug Hotspot
 
