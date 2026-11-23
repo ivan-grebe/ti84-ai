@@ -12,8 +12,8 @@ namespace OpenAI {
 
 namespace {
 
-constexpr uint16_t kMaxOutputTokens = 512;
-constexpr float kRequestTemperature = 0.3f;
+// Includes reasoning tokens, so keep headroom above the visible answer length.
+constexpr uint16_t kMaxOutputTokens = 4096;
 constexpr unsigned long kWifiReconnectDelayMs = 250;
 constexpr unsigned long kTransportRetryDelayMs = 300;
 constexpr unsigned long kWifiReconnectTimeoutMs = 10000;
@@ -132,7 +132,7 @@ String buildTextRequestBody(const RequestOptions &options) {
 
     doc["model"] = OPENAI_MODEL;
     doc["instructions"] = options.instructions;
-    doc["temperature"] = kRequestTemperature;
+    doc["reasoning"]["effort"] = OPENAI_REASONING_EFFORT;
     doc["max_output_tokens"] = kMaxOutputTokens;
     doc["store"] = shouldStoreResponse(options);
 
@@ -172,8 +172,9 @@ String buildVisionRequestBody(const RequestOptions &options) {
     body += options.imageBase64;
     body += "\"}]}],\"max_output_tokens\":";
     body += String(kMaxOutputTokens);
-    body += ",\"temperature\":";
-    body += String(kRequestTemperature, 1);
+    body += ",\"reasoning\":{\"effort\":";
+    appendJsonString(body, OPENAI_REASONING_EFFORT);
+    body += "}";
     body += ",\"store\":false}";
     return body;
 }

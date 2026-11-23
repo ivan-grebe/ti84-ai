@@ -26,7 +26,8 @@
 // OpenAI
 #define OPENAI_HOST   "api.openai.com"
 #define OPENAI_PATH   "/v1/responses"
-#define OPENAI_MODEL  "gpt-5.4"
+#define OPENAI_MODEL  "gpt-6.2-sol"
+#define OPENAI_REASONING_EFFORT  "low"
 
 // WiFi AP portals
 // Keep these TI-friendly so the calculator can display them cleanly.
