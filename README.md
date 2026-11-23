@@ -47,6 +47,10 @@ Three things are different from the video:
 
 If you built yours with the older wiring (tip on D0, ring on D1), set `PIN_RING` to `D1` in `include/config.h` before flashing.
 
+### Antenna
+
+The WiFi antenna comes loose in the box. Plug it into the small round connector at the bottom left of the XIAO's front side (hook one side in, then press the other side down until it clicks). Without it, WiFi barely works. Stick the antenna flat inside the back cover.
+
 ### Camera placement
 
 The video doesn't use a camera, so this part is up to you. The camera is already part of the S3 Sense (it plugs into the board's own connector), so it needs no extra wiring. You just need to place it so it can see out of the case:
@@ -154,7 +158,7 @@ Once the ESP32 is flashed, set up the calculator:
 2. Run `prgmTIAI`.
 3. Go to **SETTINGS > CONFIGURE**. The calculator will display an AP name.
 4. On your phone or computer, connect to the **TI84AI** network (password: `12345678`).
-5. Open the config page that appears and enter:
+5. Open a browser and go to **http://192.168.4.1** (no page pops up on its own). If your phone says the network has no internet, choose to stay connected. Then enter:
    - WiFi network name (SSID) and password
    - OpenAI API key
    - Camera quality profile (optional, defaults to Balanced)
