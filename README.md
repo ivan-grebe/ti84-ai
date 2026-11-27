@@ -40,8 +40,6 @@ Three things are different from the video:
 | Red, to battery + | VUSB (5V) | Power |
 | Black, to ground | GND | Ground |
 
-> **Not yet tested on hardware.** These pins are based on the video's diagram, not a confirmed build. If the calculator gives `ERR:LINK` when you run `Send({1})`, swap the two values in `include/config.h` (`PIN_TIP D2`, `PIN_RING D0`), reflash, and try again. Please open an issue saying which one worked.
-
 ### Antenna
 
 The WiFi antenna is loose in the box. You must install it. Without the antenna, the WiFi signal is very weak.
