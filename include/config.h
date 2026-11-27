@@ -2,9 +2,11 @@
 
 #include <stdint.h>
 
-// Link port pins (2.5mm jack)
+// Link port pins (2.5mm jack), matching the wiring in the README's video.
+// D1 is soldered in that video but is not used by this firmware.
+// Older builds wired tip=D0, ring=D1: set PIN_RING to D1 for those.
 #define PIN_TIP   D0
-#define PIN_RING  D1
+#define PIN_RING  D2
 
 // Authentication
 #define PASSWORD  69420
@@ -24,7 +26,8 @@
 // OpenAI
 #define OPENAI_HOST   "api.openai.com"
 #define OPENAI_PATH   "/v1/responses"
-#define OPENAI_MODEL  "gpt-5.4"
+#define OPENAI_MODEL  "gpt-6.2-sol"
+#define OPENAI_REASONING_EFFORT  "low"
 
 // WiFi AP portals
 // Keep these TI-friendly so the calculator can display them cleanly.
